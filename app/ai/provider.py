@@ -1,35 +1,47 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from app.config import Settings
+
+if TYPE_CHECKING:
+    from app.tools.base import ToolRegistry
 
 logger = logging.getLogger("mico.ai.provider")
 
 
 @dataclass
 class Message:
-    role: str  # "user" or "assistant"
+    role: str  # "user", "assistant", or "system"
     content: str
 
 
 class AIProvider(ABC):
     """
     Common interface every AI backend implements.
-
-    To add a new backend (OpenAI, OpenRouter, a local model, ...):
-      1. Subclass AIProvider and implement `generate`.
-      2. Add one branch to `get_provider()` below.
-    Nothing in app/ai/agent.py or app/bot/ needs to change.
+    Exposes `generate` for plain text completions and `generate_with_tools`
+    for function calling.
     """
 
     @abstractmethod
     async def generate(self, messages: list[Message], system_prompt: str) -> str:
         """Given the conversation so far and a system prompt, return the reply text."""
         raise NotImplementedError
+
+    async def generate_with_tools(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_registry: ToolRegistry,
+        max_tool_iterations: int = 5,
+    ) -> str:
+        """Generate a response with access to external tools."""
+        return await self.generate(messages, system_prompt)
 
 
 class GeminiProvider(AIProvider):
@@ -41,23 +53,17 @@ class GeminiProvider(AIProvider):
         if not model_chain:
             raise ValueError("GeminiProvider needs at least one model name.")
 
-        # Uses the current `google-genai` SDK. The older `google-generativeai`
-        # package is deprecated as of 2025 — don't reintroduce it.
         from google import genai
 
         self._client = genai.Client(api_key=api_key)
         self._model_chain = model_chain  # primary first, then fallbacks in order
 
     async def generate(self, messages: list[Message], system_prompt: str) -> str:
-        # The SDK's sync client is used here; run it off the event loop so
-        # the bot stays responsive to other Discord events while waiting.
         return await asyncio.to_thread(self._generate_sync, messages, system_prompt)
 
     def _generate_sync(self, messages: list[Message], system_prompt: str) -> str:
         from google.genai import errors, types
 
-        # Everything except the final message becomes chat history;
-        # the final message is sent as the new turn.
         history = [
             types.Content(
                 role="user" if m.role == "user" else "model",
@@ -78,17 +84,87 @@ class GeminiProvider(AIProvider):
                 response = chat.send_message(messages[-1].content)
                 if model_name != self._model_chain[0]:
                     logger.warning("Served by fallback model %r after primary failed", model_name)
-                return response.text
+                return response.text or ""
 
             except errors.ServerError as exc:
-                # 5xx: overloaded / transient — worth trying the next model.
                 logger.warning("Gemini model %r unavailable (%s) — trying next in chain", model_name, exc)
                 last_error = exc
                 continue
 
             except errors.ClientError:
-                # 4xx: bad key, bad request, quota, etc — another model won't
-                # help, so fail fast instead of burning the whole chain.
+                raise
+
+        assert last_error is not None
+        raise last_error
+
+    async def generate_with_tools(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_registry: ToolRegistry,
+        max_tool_iterations: int = 5,
+    ) -> str:
+        """Asynchronous generation with Gemini tool calling."""
+        from google.genai import errors, types
+
+        declarations = [
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=t["parameters"],
+            )
+            for t in tool_registry.to_gemini_declarations()
+        ]
+        gemini_tools = [types.Tool(function_declarations=declarations)] if declarations else None
+
+        history = [
+            types.Content(
+                role="user" if m.role == "user" else "model",
+                parts=[types.Part(text=m.content)],
+            )
+            for m in messages[:-1]
+        ]
+
+        last_error: Exception | None = None
+
+        for model_name in self._model_chain:
+            try:
+                chat = self._client.aio.chats.create(
+                    model=model_name,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        tools=gemini_tools,
+                    ),
+                    history=history,
+                )
+                response = await chat.send_message(messages[-1].content)
+
+                iterations = 0
+                while response.function_calls and iterations < max_tool_iterations:
+                    iterations += 1
+                    tool_parts = []
+                    for call in response.function_calls:
+                        fn_name = call.name
+                        fn_args = dict(call.args) if call.args else {}
+                        logger.info("Gemini calling tool: %s(%s)", fn_name, fn_args)
+                        output = await tool_registry.execute(fn_name, **fn_args)
+                        tool_parts.append(
+                            types.Part.from_function_response(
+                                name=fn_name,
+                                response={"result": str(output)},
+                            )
+                        )
+                    response = await chat.send_message(tool_parts)
+
+                if model_name != self._model_chain[0]:
+                    logger.warning("Served by fallback model %r after primary failed", model_name)
+                return response.text or ""
+
+            except errors.ServerError as exc:
+                logger.warning("Gemini model %r unavailable (%s) — trying next in chain", model_name, exc)
+                last_error = exc
+                continue
+            except errors.ClientError:
                 raise
 
         assert last_error is not None
@@ -98,8 +174,7 @@ class GeminiProvider(AIProvider):
 class OpenAICompatibleProvider(AIProvider):
     """
     Works for Groq, OpenAI, OpenRouter, or any other API that speaks the
-    OpenAI chat-completions protocol — they differ only in base_url,
-    api_key, and model names. Same fallback-chain behavior as GeminiProvider.
+    OpenAI chat-completions protocol. Includes full tool-calling support.
     """
 
     def __init__(
@@ -119,7 +194,7 @@ class OpenAICompatibleProvider(AIProvider):
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        self._model_chain = model_chain  # primary first, then fallbacks in order
+        self._model_chain = model_chain
         self._provider_label = provider_label
 
     async def generate(self, messages: list[Message], system_prompt: str) -> str:
@@ -145,12 +220,86 @@ class OpenAICompatibleProvider(AIProvider):
                         self._provider_label,
                         model_name,
                     )
-                return response.choices[0].message.content
+                return response.choices[0].message.content or ""
 
             except APIStatusError as exc:
-                # 5xx (server-side) or 429 (rate limit / overloaded) — worth
-                # trying the next model. Anything else (401 bad key, 400 bad
-                # request, etc) won't be fixed by switching models.
+                if exc.status_code >= 500 or exc.status_code == 429:
+                    logger.warning(
+                        "%s model %r unavailable (%s) — trying next in chain",
+                        self._provider_label,
+                        model_name,
+                        exc,
+                    )
+                    last_error = exc
+                    continue
+                raise
+
+        assert last_error is not None
+        raise last_error
+
+    async def generate_with_tools(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_registry: ToolRegistry,
+        max_tool_iterations: int = 5,
+    ) -> str:
+        from openai import APIStatusError
+
+        api_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        api_messages += [
+            {"role": "user" if m.role == "user" else "assistant", "content": m.content}
+            for m in messages
+        ]
+
+        tools_schema = tool_registry.to_openai_tools()
+        last_error: Exception | None = None
+
+        for model_name in self._model_chain:
+            try:
+                curr_messages = list(api_messages)
+                iterations = 0
+
+                while iterations < max_tool_iterations:
+                    iterations += 1
+                    response = await self._client.chat.completions.create(
+                        model=model_name,
+                        messages=curr_messages,
+                        tools=tools_schema if tools_schema else None,
+                    )
+                    choice = response.choices[0]
+                    msg = choice.message
+
+                    if not msg.tool_calls:
+                        return msg.content or ""
+
+                    # Add model's tool calls to conversational messages
+                    curr_messages.append(msg.model_dump(exclude_none=True))
+
+                    for tool_call in msg.tool_calls:
+                        fn_name = tool_call.function.name
+                        try:
+                            fn_args = json.loads(tool_call.function.arguments or "{}")
+                        except Exception:
+                            fn_args = {}
+
+                        logger.info("%s calling tool: %s(%s)", self._provider_label, fn_name, fn_args)
+                        output = await tool_registry.execute(fn_name, **fn_args)
+
+                        curr_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": str(output),
+                        })
+
+                # If reached max iterations, make final plain completion
+                final_res = await self._client.chat.completions.create(
+                    model=model_name,
+                    messages=curr_messages,
+                )
+                return final_res.choices[0].message.content or ""
+
+            except APIStatusError as exc:
                 if exc.status_code >= 500 or exc.status_code == 429:
                     logger.warning(
                         "%s model %r unavailable (%s) — trying next in chain",
@@ -167,10 +316,6 @@ class OpenAICompatibleProvider(AIProvider):
 
 
 def get_provider(settings: Settings) -> AIProvider:
-    """
-    Factory: returns whichever provider is configured via AI_PROVIDER.
-    This is the ONLY place in the app that should branch on provider name.
-    """
     provider_name = settings.ai_provider.lower()
 
     if provider_name == "gemini":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import discord
 from discord.ext import commands
@@ -18,7 +19,7 @@ def register_events(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_message(message: discord.Message):
-        # Let commands (like !reset) run too.
+        # Process bot prefix commands first
         await bot.process_commands(message)
 
         if message.author.bot:
@@ -29,8 +30,7 @@ def register_events(bot: commands.Bot) -> None:
         is_dm = isinstance(message.channel, discord.DMChannel)
         is_mentioned = bot.user in message.mentions if bot.user else False
 
-        # Milestone 1: respond in DMs always, and in servers only when @mentioned.
-        # (No "wake word" parsing yet — that's a cheap addition later if you want it.)
+        # Respond in DMs always, and in servers only when @mentioned.
         if not is_dm and not is_mentioned:
             return
 
@@ -43,10 +43,17 @@ def register_events(bot: commands.Bot) -> None:
 
         agent = bot.mico_agent  # type: ignore[attr-defined]
         conversation_id = str(message.channel.id)
+        user_id = str(message.author.id)
+        server_id = str(message.guild.id) if message.guild else None
 
         async with message.channel.typing():
             try:
-                reply = await agent.handle_message(conversation_id, content)
+                reply = await agent.handle_message(
+                    conversation_id=conversation_id,
+                    user_message=content,
+                    user_id=user_id,
+                    server_id=server_id,
+                )
             except Exception:
                 logger.exception("Failed to handle message in channel %s", conversation_id)
                 await message.reply(
@@ -56,11 +63,301 @@ def register_events(bot: commands.Bot) -> None:
 
         await _send_long_message(message.channel, reply)
 
+    # -------------------------------------------------------------------------
+    # Help & Core Commands
+    # -------------------------------------------------------------------------
+
+    @bot.command(name="help")
+    async def help_command(ctx: commands.Context):
+        """Show available commands and usage guide."""
+        p = ctx.prefix
+        help_text = (
+            "🤖 **MICO Commands & Usage Guide**\n\n"
+            "**Chatting with MICO (AI with Tool Calling):**\n"
+            "• In DMs: send any message directly.\n"
+            "• In server channels: `@MICO <your message>`\n"
+            "• Natural tool calling: MICO automatically executes tools when you ask questions like:\n"
+            "  - *\"What time is it in Tokyo?\"*\n"
+            "  - *\"Calculate 12 * 45 + sqrt(144)\"*\n"
+            "  - *\"Remind me tomorrow at 10am to update portfolio\"*\n"
+            "  - *\"Add write unit tests to my tasks\"* or *\"What are my tasks?\"*\n"
+            "  - *\"Show the latest commits on akosimico/mico-jarvis\"*\n\n"
+            "**Memory Commands:**\n"
+            f"• `{p}remember <fact>` — Store a fact in long-term memory.\n"
+            f"• `{p}memories` — List all your saved memories.\n"
+            f"• `{p}forget <id>` — Delete a saved memory by ID.\n"
+            f"• `{p}reset` — Clear conversation history for this channel.\n\n"
+            "**Tool Quick Commands:**\n"
+            f"• `{p}time [timezone]` — Check current time (e.g. `{p}time Asia/Tokyo`).\n"
+            f"• `{p}calc <expression>` — Evaluate math (e.g. `{p}calc 25 * 4 + 10`).\n"
+            f"• `{p}remind <time> to <content>` — Set a reminder (e.g. `{p}remind in 15m to deploy`).\n"
+            f"• `{p}reminders` — List active reminders.\n"
+            f"• `{p}task <title>` — Add a new to-do task.\n"
+            f"• `{p}tasks [status]` — List tasks (optional: pending/completed).\n"
+            f"• `{p}taskdone <id>` — Mark a task completed.\n"
+            f"• `{p}repos [user]` — List GitHub repositories.\n"
+            f"• `{p}commits <owner/repo>` — View latest repository commits.\n"
+            f"• `{p}issues <owner/repo>` — View open issues in a repository.\n"
+        )
+        await ctx.reply(help_text)
+
     @bot.command(name="reset")
     async def reset_command(ctx: commands.Context):
+        """Clear conversation history for the current channel."""
         agent = bot.mico_agent  # type: ignore[attr-defined]
-        agent.reset(str(ctx.channel.id))
+        await agent.areset(str(ctx.channel.id))
         await ctx.reply("Conversation history cleared for this channel.")
+
+    # -------------------------------------------------------------------------
+    # Memory Commands
+    # -------------------------------------------------------------------------
+
+    @bot.command(name="remember")
+    async def remember_command(ctx: commands.Context, *, fact: str):
+        """Explicitly store a fact in MICO's long-term memory."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        mem = await agent.remember(user_id=str(ctx.author.id), content=fact)
+        if mem:
+            await ctx.reply(f'Remembered: "{mem.content}" (ID: `{mem.id}`)')
+        else:
+            await ctx.reply("Memory persistence is not enabled.")
+
+    @bot.command(name="memories")
+    async def memories_command(ctx: commands.Context):
+        """List all remembered facts for the current user."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        mems = await agent.get_user_memories(user_id=str(ctx.author.id))
+        if not mems:
+            await ctx.reply(
+                "I don't have any saved memories for you yet. Use `!remember <fact>` or say 'remember that...'"
+            )
+            return
+        lines = [f"`#{m.id}` [{m.category}] {m.content}" for m in mems]
+        await ctx.reply("**Your saved memories:**\n" + "\n".join(lines))
+
+    @bot.command(name="forget")
+    async def forget_command(ctx: commands.Context, memory_id: int):
+        """Delete a saved memory by ID."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        success = await agent.forget(memory_id=memory_id, user_id=str(ctx.author.id))
+        if success:
+            await ctx.reply(f"Memory `#{memory_id}` has been forgotten.")
+        else:
+            await ctx.reply(f"Could not find memory `#{memory_id}` belonging to you.")
+
+    # -------------------------------------------------------------------------
+    # Tool Commands (Direct Manual Invocation)
+    # -------------------------------------------------------------------------
+
+    @bot.command(name="time")
+    async def time_command(ctx: commands.Context, *, timezone_name: str = "UTC"):
+        """Check current time in a specified timezone."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            result = await registry.execute("get_time", timezone_name=timezone_name)
+            await ctx.reply(result)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="calc")
+    async def calc_command(ctx: commands.Context, *, expression: str):
+        """Calculate mathematical expression."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            result = await registry.execute("calculator", expression=expression)
+            await ctx.reply(result)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="remind")
+    async def remind_command(ctx: commands.Context, *, args: str):
+        """Set a reminder. Format: !remind <time> to <content> (e.g. !remind in 15m to deploy)"""
+        # Split on " to " or " | "
+        parts = re.split(r"\s+(?:to|\|\s*)\s*", args, maxsplit=1)
+        if len(parts) < 2:
+            await ctx.reply("⚠️ Format: `!remind <time> to <what>`\n*Example:* `!remind in 20 minutes to check email`")
+            return
+        remind_at, content = parts[0].strip(), parts[1].strip()
+
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute(
+                "create_reminder",
+                user_id=str(ctx.author.id),
+                content=content,
+                remind_at=remind_at,
+                channel_id=str(ctx.channel.id),
+            )
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="reminders")
+    async def reminders_command(ctx: commands.Context):
+        """List active reminders."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("list_reminders", user_id=str(ctx.author.id))
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="task")
+    async def task_command(ctx: commands.Context, *, title: str):
+        """Add a to-do task."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("create_task", user_id=str(ctx.author.id), title=title)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="tasks")
+    async def tasks_command(ctx: commands.Context, status: str | None = None):
+        """List tasks (optional status: pending/completed)."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("list_tasks", user_id=str(ctx.author.id), status=status)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="taskdone")
+    async def taskdone_command(ctx: commands.Context, task_id: int):
+        """Mark a task completed by ID."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("complete_task", user_id=str(ctx.author.id), task_id=task_id)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="repos")
+    async def repos_command(ctx: commands.Context, username: str | None = None):
+        """List GitHub repositories."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("github_get_repositories", username=username)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="commits")
+    async def commits_command(ctx: commands.Context, repo: str, limit: int = 5):
+        """List latest commits on a GitHub repository."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("github_get_commits", repo=repo, limit=limit)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    @bot.command(name="issues")
+    async def issues_command(ctx: commands.Context, repo: str, state: str = "open"):
+        """List issues on a GitHub repository."""
+        agent = bot.mico_agent  # type: ignore[attr-defined]
+        registry = agent.tool_registry
+        if registry:
+            res = await registry.execute("github_get_issues", repo=repo, state=state)
+            await ctx.reply(res)
+        else:
+            await ctx.reply("Tool execution is not enabled.")
+
+    # -------------------------------------------------------------------------
+    # Command Error Handler
+    # -------------------------------------------------------------------------
+
+    @bot.event
+    async def on_command_error(ctx: commands.Context, error: Exception):
+        """Deliver friendly error & usage messages in Discord instead of failing silently to terminal."""
+        if isinstance(error, commands.CommandInvokeError):
+            error = error.original
+
+        prefix = ctx.prefix or "!"
+        cmd_name = ctx.command.name if ctx.command else (ctx.invoked_with or "command")
+
+        if isinstance(error, commands.MissingRequiredArgument):
+            if cmd_name == "remember":
+                await ctx.reply(
+                    f"⚠️ **Missing fact to remember.**\n"
+                    f"**Usage:** `{prefix}remember <fact>`\n"
+                    f"**Example:** `{prefix}remember I prefer Python over JavaScript`"
+                )
+            elif cmd_name == "forget":
+                await ctx.reply(
+                    f"⚠️ **Missing memory ID.**\n"
+                    f"**Usage:** `{prefix}forget <id>`\n"
+                    f"**Example:** `{prefix}forget 1` (use `{prefix}memories` to see all IDs)"
+                )
+            elif cmd_name == "calc":
+                await ctx.reply(
+                    f"⚠️ **Missing math expression.**\n"
+                    f"**Usage:** `{prefix}calc <expression>`\n"
+                    f"**Example:** `{prefix}calc 12 * 45 + sqrt(144)`"
+                )
+            elif cmd_name == "remind":
+                await ctx.reply(
+                    f"⚠️ **Missing reminder details.**\n"
+                    f"**Usage:** `{prefix}remind <time> to <what>`\n"
+                    f"**Example:** `{prefix}remind in 15 minutes to take a break`"
+                )
+            elif cmd_name == "task":
+                await ctx.reply(
+                    f"⚠️ **Missing task title.**\n"
+                    f"**Usage:** `{prefix}task <title>`\n"
+                    f"**Example:** `{prefix}task Update portfolio README`"
+                )
+            elif cmd_name == "taskdone":
+                await ctx.reply(
+                    f"⚠️ **Missing task ID.**\n"
+                    f"**Usage:** `{prefix}taskdone <task_id>`\n"
+                    f"**Example:** `{prefix}taskdone 1` (use `{prefix}tasks` to see IDs)"
+                )
+            elif cmd_name in ("commits", "issues"):
+                await ctx.reply(
+                    f"⚠️ **Missing repository name.**\n"
+                    f"**Usage:** `{prefix}{cmd_name} <owner/repo>`\n"
+                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-jarvis`"
+                )
+            else:
+                await ctx.reply(
+                    f"⚠️ **Missing argument:** `{error.param.name}`\n"
+                    f"Type `{prefix}help` for usage details."
+                )
+            return
+
+        if isinstance(error, commands.BadArgument):
+            if cmd_name in ("forget", "taskdone"):
+                await ctx.reply(
+                    f"⚠️ **Invalid numeric ID.** The ID must be a number.\n"
+                    f"**Example:** `{prefix}{cmd_name} 1`"
+                )
+            else:
+                await ctx.reply(
+                    f"⚠️ **Invalid argument** provided for `{prefix}{cmd_name}`.\n"
+                    f"Type `{prefix}help` for usage details."
+                )
+            return
+
+        if isinstance(error, commands.CommandNotFound):
+            await ctx.reply(
+                f"⚠️ Unknown command `{prefix}{ctx.invoked_with}`. Type `{prefix}help` to view all available commands."
+            )
+            return
+
+        logger.exception("Error executing command %s: %s", cmd_name, error)
+        await ctx.reply(
+            f"⚠️ An unexpected error occurred while running `{prefix}{cmd_name}`. Please try again."
+        )
 
 
 async def _send_long_message(channel: discord.abc.Messageable, text: str) -> None:

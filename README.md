@@ -1,8 +1,14 @@
-# MICO — Milestone 1
+# MICO — Milestone 2 (Core + Memory + FastAPI)
 
-`Discord → MICO → Gemini → Discord`, reliably. No tools, no memory persistence
-yet — just a solid chat loop with conversation history and a provider layer
-that's swappable without touching the rest of the code.
+Personal AI agent accessible through Discord and REST API, with swappable AI providers and persistent memory (conversations, user preferences, and project-specific knowledge).
+
+## Features
+
+- **FastAPI Backend + Discord Bot**: Runs both concurrently in the same async event loop.
+- **Provider Abstraction**: Easily switch between Gemini, Groq, OpenAI, and OpenRouter without modifying agent or bot code.
+- **Persistent Short-Term Memory**: Conversation history tracked and stored in database per channel/session.
+- **Long-Term & Project Memory**: Store and retrieve user preferences, facts, and project contexts (`!remember <fact>`, natural language "remember that...", `!memories`, `!forget <id>`).
+- **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
 
@@ -12,7 +18,9 @@ that's swappable without touching the rest of the code.
    - Copy the bot token.
    - Under OAuth2 → URL Generator, check `bot`, and permissions `Send Messages` + `Read Message History`. Use the generated URL to invite the bot to your server.
 
-2. **Get a Gemini API key:** [Google AI Studio](https://aistudio.google.com/) → Get API key.
+2. **Get an AI API key:**
+   - Gemini: [Google AI Studio](https://aistudio.google.com/)
+   - Or Groq / OpenAI / OpenRouter.
 
 3. **Install dependencies:**
    ```bash
@@ -24,19 +32,24 @@ that's swappable without touching the rest of the code.
 4. **Configure:**
    ```bash
    cp .env.example .env
-   # then edit .env: DISCORD_TOKEN, GEMINI_API_KEY
+   # Edit .env: DISCORD_TOKEN, GEMINI_API_KEY / GROQ_API_KEY, DATABASE_URL
    ```
 
 5. **Run:**
    ```bash
    python -m app.main
    ```
+   FastAPI server will be available at `http://127.0.0.1:8000` (docs at `http://127.0.0.1:8000/docs`), and the Discord bot will connect in the background.
 
 ## Using it
 
-- **DM the bot** — it replies to every message.
+- **DM the bot** — replies to every message.
 - **In a server channel** — @mention the bot to talk to it.
+- **`!remember <fact>`** — stores a long-term fact.
+- **`!memories`** — lists your saved memories.
+- **`!forget <id>`** — removes a saved memory by ID.
 - **`!reset`** — clears conversation history for the current channel.
+- **REST API** — use `POST /api/chat`, `GET /api/health`, and `/api/memories` endpoints.
 
 ## Running tests
 
@@ -44,21 +57,6 @@ that's swappable without touching the rest of the code.
 pytest
 ```
 
-Tests use a fake provider (`tests/test_agent.py`), so they run without a
-Discord token, a Gemini key, or network access — they check the Agent's
-history/reset/trim logic in isolation.
-
-## Switching providers later
-
-Everything provider-specific lives in `app/ai/provider.py`. To add OpenAI or
-OpenRouter:
-
-1. Implement `OpenAIProvider.generate()` (both are OpenAI-compatible — same
-   class, OpenRouter just needs a different `base_url`).
-2. Nothing in `app/ai/agent.py` or `app/bot/` changes. Set `AI_PROVIDER=openai`
-   (or `openrouter`) in `.env` and you're done.
-
 ## What's next
 
-See the top-level `plan.md` — Milestone 2 adds Postgres-backed memory on top
-of this.
+See [plan.md](plan.md) — Milestone 3 adds tool calling (time, calculator, tasks, reminders, and GitHub integration).

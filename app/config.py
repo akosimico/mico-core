@@ -15,11 +15,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- Discord ---
-    discord_token: str
+    discord_token: str = ""
     command_prefix: str = "!"
+    enable_bot: bool = True
+
+    # --- Database (PostgreSQL default in prod, SQLite async fallback for dev/test) ---
+    database_url: str = "sqlite+aiosqlite:///./mico.db"
+
+    # --- FastAPI Web Server ---
+    enable_api: bool = True
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
 
     # --- AI provider selection ---
-    # "gemini" today; "openai" / "openrouter" are stubbed for later.
+    # "gemini" today; "groq" / "openai" / "openrouter" are supported.
     # Change this (or the env var) and nothing else in the codebase needs to change.
     ai_provider: str = "gemini"
 
@@ -42,6 +51,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_fallback_models: str = ""
     openai_base_url: str | None = None  # set for OpenRouter, leave unset for OpenAI
+
+    # --- GitHub Integration ---
+    github_token: str | None = None
+    github_default_user: str | None = None
 
     # --- Agent behavior ---
     max_history_messages: int = 20

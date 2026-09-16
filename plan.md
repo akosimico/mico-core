@@ -1,8 +1,8 @@
 # MICO — Personal AI Automation Assistant
 
-**Status:** Not started
-**Started:** —
-**Current milestone:** Milestone 1
+**Status:** In Progress
+**Started:** September 2026
+**Current milestone:** Milestone 3 (Milestones 1 & 2 completed)
 
 ## What this is
 
@@ -146,17 +146,17 @@ MICO/
 
 ## Milestone checklist
 
-### 🟢 Milestone 1 — MICO Core
+### 🟢 Milestone 1 — MICO Core (Completed)
 Goal: `Discord → MICO → Gemini → Discord`, reliably.
 
-- [ ] FastAPI project scaffold (`app/main.py`, `config.py`)
-- [ ] discord.py bot boots and responds to a message
-- [ ] `app/ai/providers.py` with `GeminiProvider` behind a common interface
-- [ ] Basic system prompt for MICO's persona
-- [ ] In-memory conversation history (per channel/user)
-- [ ] Error handling (API failures, rate limits, bad input)
-- [ ] Basic logging
-- [ ] `.env.example` with `AI_PROVIDER`, `GEMINI_API_KEY`, `DISCORD_TOKEN`
+- [x] FastAPI project scaffold (`app/main.py`, `config.py`)
+- [x] discord.py bot boots and responds to a message
+- [x] `app/ai/providers.py` with `GeminiProvider` behind a common interface
+- [x] Basic system prompt for MICO's persona
+- [x] In-memory conversation history (per channel/user)
+- [x] Error handling (API failures, rate limits, bad input)
+- [x] Basic logging
+- [x] `.env.example` with `AI_PROVIDER`, `GEMINI_API_KEY`, `DISCORD_TOKEN`
 
 Minimal structure for this milestone only:
 ```
@@ -173,14 +173,26 @@ mico/
 └── README.md
 ```
 
-### 🟢 Milestone 2 — Memory
-- [ ] PostgreSQL set up, `database.py` connection layer
-- [ ] `memories` table: `id, user_id, content, category, importance, created_at, updated_at`
-- [ ] Short-term memory: current conversation context
-- [ ] Long-term memory: explicit "remember that..." facts
-- [ ] Project memory: grouped facts (e.g. portfolio stack)
-- [ ] User/server config table
+### 🟢 Milestone 2 — Memory (Completed)
+- [x] PostgreSQL set up, `database.py` connection layer
+- [x] `memories` table: `id, user_id, content, category, importance, created_at, updated_at`
+- [x] Short-term memory: current conversation context
+- [x] Long-term memory: explicit "remember that..." facts
+- [x] Project memory: grouped facts (e.g. portfolio stack)
+- [x] User/server config table
+- [x] In-chat command error handling (`on_command_error` with argument hints instead of silent terminal errors)
+- [x] Custom `!help` command with command reference and examples
 - [ ] (Later, not this milestone) embeddings/vector search for recall
+
+---
+
+### 📋 Command & `!help` Maintenance Rule (Mandatory across all milestones)
+
+Whenever new Discord commands or user-facing tools are introduced:
+1. **Always update `!help`**: Every new command must be documented in `!help` with its description, syntax, and an example.
+2. **Always update `on_command_error`**: Handle missing arguments (`MissingRequiredArgument`) and bad input (`BadArgument`) with friendly in-chat error messages and usage syntax instead of failing silently to the terminal.
+
+---
 
 ### 🟡 Milestone 3 — Tool Calling
 The biggest milestone — MICO stops being "just a chatbot."
@@ -197,6 +209,7 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [ ] Tool 8: `github_get_repositories()`
 - [ ] Tool 9: `github_get_commits()`
 - [ ] Tool 10: `github_get_issues()`
+- [ ] Update `!help` and `on_command_error` with any new prefix commands for tools
 
 ### 🟡 Milestone 4 — Automation Engine
 - [ ] `scheduled_tasks` table: `id, user_id, task, schedule, next_run, enabled`

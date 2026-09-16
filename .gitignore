@@ -25,5 +25,5 @@ site/
 .cache/
 *.sqlite3
 *.db
-/tests/
+
 **/__pycache__/

@@ -12,7 +12,11 @@ def build_bot(settings: Settings, agent: Agent) -> commands.Bot:
     intents = discord.Intents.default()
     intents.message_content = True  # required to read message text, not just mentions
 
-    bot = commands.Bot(command_prefix=settings.command_prefix, intents=intents)
+    bot = commands.Bot(
+        command_prefix=settings.command_prefix,
+        intents=intents,
+        help_command=None,
+    )
 
     # Stashing these on the bot instance keeps events.py simple —
     # no globals, no re-reading config/agent from disk on every message.
