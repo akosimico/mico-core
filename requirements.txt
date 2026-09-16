@@ -1,0 +1,9 @@
+discord.py>=2.4.0
+google-genai>=1.0.0
+openai>=1.50.0
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+
+# dev / test
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
