@@ -1,9 +1,11 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from google.genai import errors
 
 from app.ai.provider import GeminiProvider, Message
+from app.tools.base import ToolRegistry
+from app.tools.system import get_time_tool
 
 
 def make_server_error() -> errors.ServerError:
@@ -89,3 +91,39 @@ async def test_client_error_does_not_fall_back():
         await provider.generate([Message(role="user", content="hello")], "system prompt")
 
     assert fake_client.chats.create.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_gemini_generate_with_tools():
+    provider, fake_client = build_provider_with_fake_client([])
+
+    fake_aio = MagicMock()
+    fake_chat = MagicMock()
+
+    call_mock = MagicMock()
+    call_mock.name = "get_time"
+    call_mock.args = {"timezone_name": "UTC"}
+
+    resp1 = MagicMock()
+    resp1.function_calls = [call_mock]
+    resp1.text = None
+
+    resp2 = MagicMock()
+    resp2.function_calls = None
+    resp2.text = "The time in UTC is 12:00 PM."
+
+    fake_chat.send_message = AsyncMock(side_effect=[resp1, resp2])
+    fake_aio.chats.create = MagicMock(return_value=fake_chat)
+    fake_client.aio = fake_aio
+
+    registry = ToolRegistry()
+    registry.register(get_time_tool)
+
+    reply = await provider.generate_with_tools(
+        messages=[Message(role="user", content="What time is it?")],
+        system_prompt="sys prompt",
+        tool_registry=registry,
+    )
+
+    assert "The time in UTC is 12:00 PM." in reply
+    assert fake_chat.send_message.call_count == 2

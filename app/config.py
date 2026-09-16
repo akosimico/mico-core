@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     command_prefix: str = "!"
     enable_bot: bool = True
 
+    # --- Timezone & Localization ---
+    default_timezone: str = "Asia/Manila"
+
     # --- Database (PostgreSQL default in prod, SQLite async fallback for dev/test) ---
     database_url: str = "sqlite+aiosqlite:///./mico.db"
 

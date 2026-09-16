@@ -140,6 +140,7 @@ class GeminiProvider(AIProvider):
                 response = await chat.send_message(messages[-1].content)
 
                 iterations = 0
+                last_tool_outputs: list[str] = []
                 while response.function_calls and iterations < max_tool_iterations:
                     iterations += 1
                     tool_parts = []
@@ -148,6 +149,7 @@ class GeminiProvider(AIProvider):
                         fn_args = dict(call.args) if call.args else {}
                         logger.info("Gemini calling tool: %s(%s)", fn_name, fn_args)
                         output = await tool_registry.execute(fn_name, **fn_args)
+                        last_tool_outputs.append(str(output))
                         tool_parts.append(
                             types.Part.from_function_response(
                                 name=fn_name,
@@ -158,7 +160,7 @@ class GeminiProvider(AIProvider):
 
                 if model_name != self._model_chain[0]:
                     logger.warning("Served by fallback model %r after primary failed", model_name)
-                return response.text or ""
+                return response.text or ("\n\n".join(last_tool_outputs) if last_tool_outputs else "")
 
             except errors.ServerError as exc:
                 logger.warning("Gemini model %r unavailable (%s) — trying next in chain", model_name, exc)
@@ -260,6 +262,7 @@ class OpenAICompatibleProvider(AIProvider):
                 curr_messages = list(api_messages)
                 iterations = 0
 
+                last_tool_outputs: list[str] = []
                 while iterations < max_tool_iterations:
                     iterations += 1
                     response = await self._client.chat.completions.create(
@@ -271,7 +274,7 @@ class OpenAICompatibleProvider(AIProvider):
                     msg = choice.message
 
                     if not msg.tool_calls:
-                        return msg.content or ""
+                        return msg.content or ("\n\n".join(last_tool_outputs) if last_tool_outputs else "")
 
                     # Add model's tool calls to conversational messages
                     curr_messages.append(msg.model_dump(exclude_none=True))
@@ -285,6 +288,7 @@ class OpenAICompatibleProvider(AIProvider):
 
                         logger.info("%s calling tool: %s(%s)", self._provider_label, fn_name, fn_args)
                         output = await tool_registry.execute(fn_name, **fn_args)
+                        last_tool_outputs.append(str(output))
 
                         curr_messages.append({
                             "role": "tool",
@@ -297,7 +301,7 @@ class OpenAICompatibleProvider(AIProvider):
                     model=model_name,
                     messages=curr_messages,
                 )
-                return final_res.choices[0].message.content or ""
+                return final_res.choices[0].message.content or ("\n\n".join(last_tool_outputs) if last_tool_outputs else "")
 
             except APIStatusError as exc:
                 if exc.status_code >= 500 or exc.status_code == 429:

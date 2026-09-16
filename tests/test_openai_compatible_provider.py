@@ -5,6 +5,8 @@ import pytest
 from openai import BadRequestError, InternalServerError, RateLimitError
 
 from app.ai.provider import Message, OpenAICompatibleProvider
+from app.tools.base import ToolRegistry
+from app.tools.system import calculator_tool
 
 _FAKE_REQUEST = httpx.Request("POST", "https://example.invalid/chat/completions")
 
@@ -100,3 +102,42 @@ async def test_raises_after_exhausting_chain():
 def test_missing_api_key_raises_immediately():
     with pytest.raises(ValueError, match="No API key"):
         OpenAICompatibleProvider(api_key=None, model_chain=["model-a"], provider_label="groq")
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_with_tools():
+    # Turn 1: model returns tool call
+    tool_call = MagicMock()
+    tool_call.id = "call_123"
+    tool_call.function.name = "calculator"
+    tool_call.function.arguments = '{"expression": "25 * 4"}'
+
+    msg1 = MagicMock()
+    msg1.tool_calls = [tool_call]
+    msg1.content = None
+    msg1.model_dump.return_value = {"role": "assistant", "content": None, "tool_calls": []}
+
+    resp1 = MagicMock()
+    resp1.choices = [MagicMock(message=msg1)]
+
+    # Turn 2: model returns text after tool execution
+    msg2 = MagicMock()
+    msg2.tool_calls = None
+    msg2.content = "25 * 4 equals 100."
+
+    resp2 = MagicMock()
+    resp2.choices = [MagicMock(message=msg2)]
+
+    provider, fake_client = build_provider_with_fake_client([resp1, resp2])
+
+    registry = ToolRegistry()
+    registry.register(calculator_tool)
+
+    reply = await provider.generate_with_tools(
+        messages=[Message(role="user", content="Calculate 25 * 4")],
+        system_prompt="sys prompt",
+        tool_registry=registry,
+    )
+
+    assert "25 * 4 equals 100." in reply
+    assert fake_client.chat.completions.create.call_count == 2

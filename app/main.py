@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     bot = None
     if settings.enable_bot and settings.discord_token:
         logger.info("Starting Discord bot in background task...")
-        bot = build_bot(settings, agent)
+        bot = build_bot(settings, agent, db=db)
         bot_task = asyncio.create_task(bot.start(settings.discord_token))
     else:
         logger.info("Discord bot is disabled or DISCORD_TOKEN is empty; running API only")
@@ -64,6 +64,8 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down MICO...")
         if bot is not None:
+            if hasattr(bot, "reminder_worker") and bot.reminder_worker:
+                await bot.reminder_worker.stop()
             logger.info("Closing Discord bot connection...")
             await bot.close()
         if bot_task is not None:
@@ -79,8 +81,8 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="MICO — Personal AI Automation Assistant",
-        description="FastAPI backend + Discord Bot with AI provider abstraction and persistent memory",
-        version="0.2.0",
+        description="FastAPI backend + Discord Bot with AI provider abstraction, persistent memory, and tool calling",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
@@ -88,7 +90,7 @@ def create_app() -> FastAPI:
     async def root():
         return {
             "app": "MICO",
-            "version": "0.2.0",
+            "version": "0.3.0",
             "status": "online",
             "docs": "/docs",
         }
@@ -131,7 +133,7 @@ def main() -> None:
             memory_service=memory_service,
             tool_registry=tool_registry,
         )
-        bot = build_bot(settings, agent)
+        bot = build_bot(settings, agent, db=db)
         bot.run(settings.discord_token)
 
 

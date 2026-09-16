@@ -16,18 +16,26 @@ logger = logging.getLogger("mico.ai.agent")
 
 
 class ContextualToolRegistry(ToolRegistry):
-    """Wraps a ToolRegistry to automatically supply user context (like user_id) if omitted by the LLM."""
+    """Wraps a ToolRegistry to automatically supply user context (like user_id and channel_id) if omitted by the LLM."""
 
-    def __init__(self, base_registry: ToolRegistry, default_user_id: str | None = None):
+    def __init__(
+        self,
+        base_registry: ToolRegistry,
+        default_user_id: str | None = None,
+        default_channel_id: str | None = None,
+    ):
         super().__init__(tools=dict(base_registry.tools))
         self.default_user_id = default_user_id
+        self.default_channel_id = default_channel_id
 
     async def execute(self, name: str, **kwargs) -> str:
-        # If tool accepts user_id and it wasn't provided, fill in default_user_id
         tool = self.get(name)
-        if tool and "user_id" in tool.parameters.get("properties", {}):
-            if not kwargs.get("user_id") and self.default_user_id:
+        if tool:
+            props = tool.parameters.get("properties", {})
+            if "user_id" in props and not kwargs.get("user_id") and self.default_user_id:
                 kwargs["user_id"] = self.default_user_id
+            if "channel_id" in props and not kwargs.get("channel_id") and self.default_channel_id:
+                kwargs["channel_id"] = self.default_channel_id
         return await super().execute(name, **kwargs)
 
 
@@ -171,7 +179,9 @@ class Agent:
         try:
             if self._tool_registry is not None:
                 active_registry = ContextualToolRegistry(
-                    self._tool_registry, default_user_id=user_id
+                    self._tool_registry,
+                    default_user_id=user_id,
+                    default_channel_id=conversation_id,
                 )
                 reply = await self._provider.generate_with_tools(
                     messages=history,

@@ -23,7 +23,7 @@ def build_default_registry(
     registry.register(calculator_tool)
 
     # Task & Reminder tools (Tools 3 to 7)
-    task_service = TaskService(db=db)
+    task_service = TaskService(db=db, default_timezone=cfg.default_timezone)
     for tool in build_task_tools(task_service):
         registry.register(tool)
 

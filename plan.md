@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 3 (Milestones 1 & 2 completed)
+**Current milestone:** Milestone 4 (Milestones 1, 2 & 3 completed)
 
 ## What this is
 
@@ -194,22 +194,22 @@ Whenever new Discord commands or user-facing tools are introduced:
 
 ---
 
-### 🟡 Milestone 3 — Tool Calling
+### 🟢 Milestone 3 — Tool Calling (Completed)
 The biggest milestone — MICO stops being "just a chatbot."
 
-- [ ] Tool registry pattern (`tools/`)
-- [ ] Gemini function-calling wired through `agent.py`
-- [ ] Tool 1: `get_time()`
-- [ ] Tool 2: `calculator()`
-- [ ] Tool 3: `create_reminder()`
-- [ ] Tool 4: `list_reminders()`
-- [ ] Tool 5: `create_task()`
-- [ ] Tool 6: `list_tasks()`
-- [ ] Tool 7: `complete_task()`
-- [ ] Tool 8: `github_get_repositories()`
-- [ ] Tool 9: `github_get_commits()`
-- [ ] Tool 10: `github_get_issues()`
-- [ ] Update `!help` and `on_command_error` with any new prefix commands for tools
+- [x] Tool registry pattern (`tools/`)
+- [x] Gemini function-calling wired through `agent.py`
+- [x] Tool 1: `get_time()`
+- [x] Tool 2: `calculator()`
+- [x] Tool 3: `create_reminder()`
+- [x] Tool 4: `list_reminders()`
+- [x] Tool 5: `create_task()`
+- [x] Tool 6: `list_tasks()`
+- [x] Tool 7: `complete_task()`
+- [x] Tool 8: `github_get_repositories()`
+- [x] Tool 9: `github_get_commits()`
+- [x] Tool 10: `github_get_issues()`
+- [x] Update `!help` and `on_command_error` with any new prefix commands for tools
 
 ### 🟡 Milestone 4 — Automation Engine
 - [ ] `scheduled_tasks` table: `id, user_id, task, schedule, next_run, enabled`

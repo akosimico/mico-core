@@ -200,3 +200,51 @@ async def test_tool_registry(test_db):
     # Test non-existent tool
     err_res = await registry.execute("non_existent_tool")
     assert "is not registered" in err_res
+
+
+def test_flexible_datetime_parsing():
+    from zoneinfo import ZoneInfo
+    from app.tools.tasks import format_datetime_human, format_relative_delta, parse_datetime_flexible
+
+    now = datetime.now(timezone.utc)
+
+    # 10 seconds parsing
+    dt_10s = parse_datetime_flexible("in 10s")
+    assert dt_10s > now
+    assert 8 <= (dt_10s - now).total_seconds() <= 12
+
+    dt_15m = parse_datetime_flexible("in 15 mins")
+    assert dt_15m > now
+    assert (dt_15m - now).total_seconds() >= 800
+
+    dt_compound = parse_datetime_flexible("in 1 hour 30 mins")
+    assert (dt_compound - now).total_seconds() >= 5300
+
+    dt_2d = parse_datetime_flexible("in 2 days")
+    assert (dt_2d - now).total_seconds() >= 170000
+
+    # Tomorrow in Asia/Manila (UTC+8) -> local hour is 10
+    dt_tomorrow = parse_datetime_flexible("tomorrow at 10am", default_tz="Asia/Manila")
+    assert dt_tomorrow > now
+    assert dt_tomorrow.astimezone(ZoneInfo("Asia/Manila")).hour == 10
+
+    # Humanized relative delta tests
+    assert format_relative_delta(10) == "10 seconds"
+    assert format_relative_delta(1) == "1 second"
+    assert format_relative_delta(60) == "1 minute"
+    assert format_relative_delta(7200) == "2 hours"
+
+    # Humanized formatting in Asia/Manila timezone
+    human_str = format_datetime_human(dt_10s, tz_name="Asia/Manila")
+    assert "PHT" in human_str
+    assert "in 10 seconds" in human_str or "in 9 seconds" in human_str or "in 11 seconds" in human_str
+
+    with pytest.raises(ValueError, match="Could not parse date/time"):
+        parse_datetime_flexible("not a real date at all xyz")
+
+
+@pytest.mark.asyncio
+async def test_complete_task_invalid_id(test_db):
+    service = TaskService(db=test_db)
+    res = await service.complete_task(user_id="user1", task_id="not-a-number")  # type: ignore[arg-type]
+    assert "Invalid task ID" in res

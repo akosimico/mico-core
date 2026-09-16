@@ -5,6 +5,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
+from zoneinfo import ZoneInfo
+
 from dateutil import parser
 from sqlalchemy import select, update
 
@@ -15,50 +17,150 @@ from app.tools.base import Tool
 logger = logging.getLogger("mico.tools.tasks")
 
 
-def parse_datetime_flexible(text: str) -> datetime:
-    """Parse relative expressions like 'in 10 minutes', 'tomorrow at 3pm', or standard datetime strings."""
+def format_relative_delta(diff_seconds: float) -> str:
+    """Format seconds into a clean humanized relative string (e.g. '10 seconds', '5 minutes', '2 hours')."""
+    abs_diff = abs(diff_seconds)
+    if abs_diff < 1:
+        return "a moment"
+    if abs_diff < 60:
+        s = int(round(abs_diff))
+        return f"{s} second{'s' if s != 1 else ''}"
+    if abs_diff < 3600:
+        m = int(abs_diff // 60)
+        s = int(abs_diff % 60)
+        if s > 0 and abs_diff < 300:
+            return f"{m}m {s}s"
+        return f"{m} minute{'s' if m != 1 else ''}"
+    if abs_diff < 86400:
+        h = int(abs_diff // 3600)
+        m = int((abs_diff % 3600) // 60)
+        if m > 0:
+            return f"{h}h {m}m"
+        return f"{h} hour{'s' if h != 1 else ''}"
+    d = int(abs_diff // 86400)
+    return f"{d} day{'s' if d != 1 else ''}"
+
+
+def format_datetime_human(
+    dt: datetime,
+    tz_name: str = "Asia/Manila",
+    is_completed: bool = False,
+) -> str:
+    """
+    Format a datetime into a human-friendly string with localized time and relative duration.
+    Examples:
+    - Pending: "in 10 seconds (today at 09:57:10 PM PHT)"
+    - Pending tomorrow: "in 14 hours (tomorrow at 10:00 AM PHT)"
+    - Completed: "completed 15 seconds ago (today at 09:57:10 PM PHT)"
+    - Overdue: "overdue by 2 minutes (today at 09:55 PM PHT)"
+    """
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    try:
+        target_tz: ZoneInfo | timezone = ZoneInfo(tz_name)
+    except Exception:
+        target_tz = timezone.utc
+
+    local_dt = dt.astimezone(target_tz)
+    now_local = now.astimezone(target_tz)
+    if tz_name.lower() in ("asia/manila", "manila", "pht"):
+        tz_abbr = "PHT"
+    else:
+        tz_abbr = local_dt.tzname() or tz_name
+
+    diff_seconds = (dt - now).total_seconds()
+    rel_time = format_relative_delta(diff_seconds)
+
+    # Show seconds for short durations (< 2 minutes)
+    if abs(diff_seconds) < 120:
+        clock_str = local_dt.strftime("%I:%M:%S %p")
+    else:
+        clock_str = local_dt.strftime("%I:%M %p")
+
+    # Date descriptor
+    if local_dt.date() == now_local.date():
+        day_str = "today"
+    elif local_dt.date() == (now_local + timedelta(days=1)).date():
+        day_str = "tomorrow"
+    elif local_dt.date() == (now_local - timedelta(days=1)).date():
+        day_str = "yesterday"
+    else:
+        day_str = local_dt.strftime("%b %d, %Y")
+
+    if is_completed:
+        return f"completed {rel_time} ago ({day_str} at {clock_str} {tz_abbr})"
+
+    if diff_seconds >= 0:
+        return f"in {rel_time} ({day_str} at {clock_str} {tz_abbr})"
+    return f"overdue by {rel_time} ({day_str} at {clock_str} {tz_abbr})"
+
+
+def parse_datetime_flexible(text: str, default_tz: str = "Asia/Manila") -> datetime:
+    """Parse relative expressions like 'in 10 seconds', 'in 15 minutes', 'tomorrow at 10am', or standard datetime strings."""
     cleaned = text.strip().lower()
     now = datetime.now(timezone.utc)
 
-    # Relative time pattern: "in 15 minutes", "in 2 hours", "in 3 days"
-    rel_match = re.match(
-        r"^in\s+(\d+)\s*(m|min|minute|minutes|h|hr|hour|hours|d|day|days)$", cleaned
-    )
-    if rel_match:
-        val = int(rel_match.group(1))
-        unit = rel_match.group(2)
-        if unit.startswith("m"):
-            return now + timedelta(minutes=val)
-        if unit.startswith("h"):
-            return now + timedelta(hours=val)
-        if unit.startswith("d"):
-            return now + timedelta(days=val)
+    try:
+        target_tz: ZoneInfo | timezone = ZoneInfo(default_tz)
+    except Exception:
+        target_tz = timezone.utc
+
+    # Relative time pattern: "in 10s", "in 15 minutes", "in 1 hour 30 mins", "in 3 days"
+    if cleaned.startswith("in "):
+        matches = re.findall(
+            r"(\d+)\s*(s(?:ec(?:ond)?s?)?|m(?:in(?:ute)?s?)?|h(?:(?:ou)?rs?)?|d(?:ays?)?|w(?:(?:ee)?ks?)?)\b",
+            cleaned,
+        )
+        if matches:
+            delta = timedelta()
+            for val_str, unit in matches:
+                val = int(val_str)
+                if unit.startswith("s"):
+                    delta += timedelta(seconds=val)
+                elif unit.startswith("m"):
+                    delta += timedelta(minutes=val)
+                elif unit.startswith("h"):
+                    delta += timedelta(hours=val)
+                elif unit.startswith("d"):
+                    delta += timedelta(days=val)
+                elif unit.startswith("w"):
+                    delta += timedelta(weeks=val)
+            if delta.total_seconds() > 0:
+                return now + delta
 
     # Tomorrow pattern
     if "tomorrow" in cleaned:
         time_part = re.sub(r"^.*?tomorrow(?:\s+at)?\s*", "", cleaned).strip()
-        target_date = (now + timedelta(days=1)).date()
+        now_local = now.astimezone(target_tz)
+        target_date = (now_local + timedelta(days=1)).date()
         if time_part:
             try:
                 parsed_time = parser.parse(time_part).time()
-                return datetime.combine(target_date, parsed_time, tzinfo=timezone.utc)
+                local_dt = datetime.combine(target_date, parsed_time, tzinfo=target_tz)
+                return local_dt.astimezone(timezone.utc)
             except Exception:
                 pass
-        return datetime.combine(target_date, datetime(2000, 1, 1, 9, 0).time(), tzinfo=timezone.utc)
+        local_dt = datetime.combine(target_date, datetime(2000, 1, 1, 9, 0).time(), tzinfo=target_tz)
+        return local_dt.astimezone(timezone.utc)
 
     # Standard / fuzzy date parsing
     try:
         parsed = parser.parse(text, fuzzy=True)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(tzinfo=target_tz).astimezone(timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
         return parsed
     except Exception as exc:
         raise ValueError(f"Could not parse date/time from '{text}': {exc}") from exc
 
 
 class TaskService:
-    def __init__(self, db: Database | None = None):
+    def __init__(self, db: Database | None = None, default_timezone: str = "Asia/Manila"):
         self._db = db
+        self.default_timezone = default_timezone
 
     @property
     def db(self) -> Database:
@@ -75,7 +177,7 @@ class TaskService:
     ) -> str:
         """Create a scheduled reminder."""
         try:
-            target_time = parse_datetime_flexible(remind_at)
+            target_time = parse_datetime_flexible(remind_at, default_tz=self.default_timezone)
         except Exception as exc:
             return f"Error: Invalid reminder time: {exc}"
 
@@ -91,7 +193,7 @@ class TaskService:
             await session.commit()
             await session.refresh(record)
 
-            time_str = target_time.strftime("%Y-%m-%d %I:%M %p UTC")
+            time_str = format_datetime_human(target_time, tz_name=self.default_timezone)
             return f"✅ Reminder #{record.id} set for {time_str}: \"{record.content}\""
 
     async def list_reminders(
@@ -115,8 +217,12 @@ class TaskService:
             lines = ["📋 **Your Reminders:**"]
             for r in records:
                 status = "✅ Completed" if r.is_completed else "⏰ Pending"
-                time_str = r.remind_at.strftime("%Y-%m-%d %I:%M %p UTC")
-                lines.append(f"• `#{r.id}` [{status}] {r.content} (At: {time_str})")
+                time_str = format_datetime_human(
+                    r.remind_at,
+                    tz_name=self.default_timezone,
+                    is_completed=r.is_completed,
+                )
+                lines.append(f"• `#{r.id}` [{status}] {r.content} ({time_str})")
 
             return "\n".join(lines)
 
@@ -187,18 +293,23 @@ class TaskService:
         task_id: int,
     ) -> str:
         """Mark a task as completed."""
+        try:
+            numeric_id = int(task_id)
+        except (ValueError, TypeError):
+            return f"Error: Invalid task ID '{task_id}'. The task ID must be a number."
+
         async with self.db.session() as session:
             stmt = (
                 update(TaskRecord)
-                .where(TaskRecord.id == int(task_id), TaskRecord.user_id == str(user_id))
+                .where(TaskRecord.id == numeric_id, TaskRecord.user_id == str(user_id))
                 .values(status="completed", updated_at=datetime.now(timezone.utc))
             )
             result = await session.execute(stmt)
             await session.commit()
 
             if result.rowcount > 0:
-                return f"✅ Task #{task_id} has been marked as completed!"
-            return f"❌ Could not find active task #{task_id} belonging to you."
+                return f"✅ Task #{numeric_id} has been marked as completed!"
+            return f"❌ Could not find active task #{numeric_id} belonging to you."
 
 
 def build_task_tools(service: TaskService) -> list[Tool]:

@@ -16,6 +16,9 @@ def register_events(bot: commands.Bot) -> None:
     async def on_ready():
         user = bot.user
         logger.info("MICO is online as %s (id: %s)", user, user.id if user else "?")
+        worker = getattr(bot, "reminder_worker", None)
+        if worker is not None:
+            await worker.start()
 
     @bot.event
     async def on_message(message: discord.Message):
@@ -340,6 +343,11 @@ def register_events(bot: commands.Bot) -> None:
                 await ctx.reply(
                     f"⚠️ **Invalid numeric ID.** The ID must be a number.\n"
                     f"**Example:** `{prefix}{cmd_name} 1`"
+                )
+            elif cmd_name in ("commits", "issues"):
+                await ctx.reply(
+                    f"⚠️ **Invalid limit argument.** The limit must be a number.\n"
+                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-jarvis 5`"
                 )
             else:
                 await ctx.reply(
