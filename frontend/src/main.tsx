@@ -12,6 +12,7 @@ import {
   ListChecks,
   RefreshCw,
   Server,
+  type LucideIcon,
   User,
   Zap,
 } from "lucide-react";
@@ -283,7 +284,7 @@ function Panel({
   title: string;
   label: string;
   count: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  icon: LucideIcon;
   children: React.ReactNode;
 }) {
   return (
