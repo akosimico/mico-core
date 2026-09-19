@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy import inspect, text
 
 from app.config import Settings, get_settings
 from app.database.models import Base
@@ -41,6 +42,16 @@ class Database:
         logger.info("Initializing database tables for %s", self.database_url)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # This project currently uses metadata creation rather than Alembic.
+            # Preserve existing local databases when Milestone 5 adds task projects.
+            tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+            if "tasks" in tables:
+                columns = await conn.run_sync(
+                    lambda sync_conn: {column["name"] for column in inspect(sync_conn).get_columns("tasks")}
+                )
+                if "project_id" not in columns:
+                    await conn.execute(text("ALTER TABLE tasks ADD COLUMN project_id INTEGER"))
+                    logger.info("Added project_id column to existing tasks table")
         logger.info("Database tables initialized successfully")
 
     async def close(self) -> None:

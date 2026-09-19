@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from app.ai.agent import Agent
 from app.ai.memory import MemoryService
 from app.ai.provider import get_provider
-from app.api.routes import router as api_router, set_agent
+from app.api.routes import router as api_router, set_agent, set_discord_bot
 from app.bot.client import build_bot
 from app.config import get_settings
 from app.database.database import get_database
@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
     if settings.enable_bot and settings.discord_token:
         logger.info("Starting Discord bot in background task...")
         bot = build_bot(settings, agent, db=db)
+        set_discord_bot(bot)
         bot_task = asyncio.create_task(bot.start(settings.discord_token))
     else:
         logger.info("Discord bot is disabled or DISCORD_TOKEN is empty; running API only")
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI):
                 await bot.automation_worker.stop()
             logger.info("Closing Discord bot connection...")
             await bot.close()
+        set_discord_bot(None)
         if bot_task is not None:
             bot_task.cancel()
             try:

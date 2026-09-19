@@ -64,6 +64,9 @@ async def test_tasks_and_reminders(test_db):
     service = TaskService(db=test_db)
     user_id = "user_test_tools"
 
+    project = await service.create_project(user_id=user_id, name="MICO")
+    assert "Project #" in project
+
     # Tool 3: create_reminder
     res_remind = await service.create_reminder(
         user_id=user_id,
@@ -83,6 +86,7 @@ async def test_tasks_and_reminders(test_db):
         title="Write integration tests",
         description="Cover all 10 tools",
         due_date="tomorrow",
+        project_name="MICO",
     )
     assert "Task #" in res_task
     assert "Write integration tests" in res_task
@@ -91,6 +95,7 @@ async def test_tasks_and_reminders(test_db):
     res_tasks = await service.list_tasks(user_id=user_id)
     assert "Write integration tests" in res_tasks
     assert "pending" in res_tasks
+    assert "MICO" in await service.list_projects(user_id=user_id)
 
     # Tool 7: complete_task
     res_done = await service.complete_task(user_id=user_id, task_id=1)
@@ -186,11 +191,11 @@ async def test_tool_registry(test_db):
 
     # Test schema exports
     openai_tools = registry.to_openai_tools()
-    assert len(openai_tools) == 10
+    assert len(openai_tools) == 15
     assert openai_tools[0]["type"] == "function"
 
     gemini_decls = registry.to_gemini_declarations()
-    assert len(gemini_decls) == 10
+    assert len(gemini_decls) == 15
     assert "name" in gemini_decls[0]
 
     # Test direct execution

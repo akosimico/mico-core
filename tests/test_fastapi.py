@@ -119,7 +119,7 @@ async def test_tools_endpoints(client_and_agent):
     res = await client.get("/api/tools")
     assert res.status_code == 200
     tools = res.json()
-    assert len(tools) == 10
+    assert len(tools) == 15
     tool_names = [t["name"] for t in tools]
     assert "calculator" in tool_names
     assert "get_time" in tool_names

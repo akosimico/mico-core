@@ -11,7 +11,7 @@ from dateutil import parser
 from sqlalchemy import select, update
 
 from app.database.database import Database, get_database
-from app.database.models import ReminderRecord, TaskRecord
+from app.database.models import ProjectRecord, ReminderRecord, TaskRecord
 from app.tools.base import Tool
 
 logger = logging.getLogger("mico.tools.tasks")
@@ -234,6 +234,7 @@ class TaskService:
         title: str,
         description: str | None = None,
         due_date: str | None = None,
+        project_name: str | None = None,
     ) -> str:
         """Create a new task."""
         parsed_due = None
@@ -244,12 +245,22 @@ class TaskService:
                 logger.warning("Could not parse due date '%s' for task", due_date)
 
         async with self.db.session() as session:
+            project = None
+            if project_name:
+                project = (await session.execute(select(ProjectRecord).where(
+                    ProjectRecord.user_id == str(user_id), ProjectRecord.name.ilike(project_name.strip())
+                ))).scalar_one_or_none()
+                if project is None:
+                    project = ProjectRecord(user_id=str(user_id), name=project_name.strip())
+                    session.add(project)
+                    await session.flush()
             task = TaskRecord(
                 user_id=str(user_id),
                 title=title.strip(),
                 description=description.strip() if description else None,
                 status="pending",
                 due_date=parsed_due,
+                project_id=project.id if project else None,
             )
             session.add(task)
             await session.commit()
@@ -257,6 +268,38 @@ class TaskService:
 
             due_msg = f" (due {parsed_due.strftime('%Y-%m-%d')})" if parsed_due else ""
             return f"✅ Task #{task.id} created: \"{task.title}\"{due_msg}"
+
+    async def create_project(self, user_id: str, name: str, description: str | None = None) -> str:
+        """Create a named project for grouping tasks."""
+        clean_name = name.strip()
+        if not clean_name:
+            return "Error: Project name cannot be empty."
+        async with self.db.session() as session:
+            existing = (await session.execute(select(ProjectRecord).where(
+                ProjectRecord.user_id == str(user_id), ProjectRecord.name.ilike(clean_name)
+            ))).scalar_one_or_none()
+            if existing:
+                return f"Project \"{existing.name}\" already exists (#{existing.id})."
+            project = ProjectRecord(user_id=str(user_id), name=clean_name, description=description.strip() if description else None)
+            session.add(project)
+            await session.flush()
+            return f"✅ Project #{project.id} created: \"{project.name}\""
+
+    async def list_projects(self, user_id: str) -> str:
+        """List projects and their active task counts."""
+        async with self.db.session() as session:
+            projects = list((await session.execute(select(ProjectRecord).where(
+                ProjectRecord.user_id == str(user_id)
+            ).order_by(ProjectRecord.created_at.desc()))).scalars().all())
+            if not projects:
+                return "You have no projects yet."
+            lines = ["📁 **Your Projects:**"]
+            for project in projects:
+                active_count = len(list((await session.execute(select(TaskRecord).where(
+                    TaskRecord.project_id == project.id, TaskRecord.status.in_(("pending", "in_progress"))
+                ))).scalars().all()))
+                lines.append(f"• `#{project.id}` **{project.name}** — {active_count} active task(s)")
+            return "\n".join(lines)
 
     async def list_tasks(
         self,
@@ -382,10 +425,38 @@ def build_task_tools(service: TaskService) -> list[Tool]:
                         "type": "string",
                         "description": "Optional due date (e.g. 'tomorrow', 'next Monday', '2026-09-20').",
                     },
+                    "project_name": {
+                        "type": "string",
+                        "description": "Optional project name. A missing project is created automatically.",
+                    },
                 },
                 "required": ["user_id", "title"],
             },
             func=service.create_task,
+        ),
+        Tool(
+            name="create_project",
+            description="Create a project for grouping the user's development tasks.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "The project owner."},
+                    "name": {"type": "string", "description": "Project name."},
+                    "description": {"type": "string", "description": "Optional project description."},
+                },
+                "required": ["user_id", "name"],
+            },
+            func=service.create_project,
+        ),
+        Tool(
+            name="list_projects",
+            description="List the user's projects and their active task counts.",
+            parameters={
+                "type": "object",
+                "properties": {"user_id": {"type": "string", "description": "The project owner."}},
+                "required": ["user_id"],
+            },
+            func=service.list_projects,
         ),
         Tool(
             name="list_tasks",

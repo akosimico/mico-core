@@ -184,6 +184,73 @@ class GitHubClient:
             logger.exception("GitHub activity summary failed: %s", exc)
             return f"**GitHub activity:** unavailable ({exc})"
 
+    async def get_commits_today(self, repo: str | None = None) -> str:
+        """Report commits authored today in a repository or recent account repos."""
+        since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        if repo:
+            repositories = [{"full_name": repo.strip().strip("/")}]
+        elif self.default_user:
+            repositories = await self._recent_repositories()
+        else:
+            return "Error: Specify a repository or configure GITHUB_DEFAULT_USER."
+        lines: list[str] = ["🔨 **Today's GitHub Commits:**"]
+        try:
+            async with httpx.AsyncClient(headers=self._get_headers(), timeout=15.0) as client:
+                for item in repositories:
+                    name = item.get("full_name")
+                    response = await client.get(f"{GITHUB_API_BASE}/repos/{name}/commits?per_page=30")
+                    if response.status_code != 200:
+                        continue
+                    for commit in response.json():
+                        date_text = commit.get("commit", {}).get("author", {}).get("date", "")
+                        try:
+                            committed_at = datetime.fromisoformat(date_text.replace("Z", "+00:00"))
+                        except ValueError:
+                            continue
+                        if committed_at >= since:
+                            lines.append(f"• {name}: {commit.get('commit', {}).get('message', '').split(chr(10))[0]}")
+            return "\n".join(lines) if len(lines) > 1 else "No commits found today."
+        except Exception as exc:
+            logger.exception("GitHub today commits failed: %s", exc)
+            return f"GitHub API error: {exc}"
+
+    async def _recent_repositories(self) -> list[dict[str, Any]]:
+        user = self.default_user
+        async with httpx.AsyncClient(headers=self._get_headers(), timeout=15.0) as client:
+            url = f"{GITHUB_API_BASE}/users/{user}/repos?sort=updated&per_page=30" if user else f"{GITHUB_API_BASE}/user/repos?sort=updated&per_page=30"
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_stale_repositories(self, days: int = 30) -> str:
+        """List configured-account repositories with no updates within a threshold."""
+        if not self.default_user and not self.token:
+            return "Error: Configure GITHUB_DEFAULT_USER or GITHUB_TOKEN."
+        days = max(1, min(int(days), 3650))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        try:
+            repos = await self._recent_repositories()
+            stale = []
+            for repo in repos:
+                updated_text = repo.get("updated_at", "")
+                try:
+                    updated_at = datetime.fromisoformat(updated_text.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if updated_at < cutoff:
+                    stale.append(f"• {repo.get('full_name')} — last updated {updated_at.date()}")
+            return "🧊 **Stale Repositories:**\n" + "\n".join(stale) if stale else f"No repositories are stale after {days} days."
+        except Exception as exc:
+            logger.exception("GitHub stale repositories failed: %s", exc)
+            return f"GitHub API error: {exc}"
+
+    async def summarize_commits(self, repo: str, limit: int = 10) -> str:
+        """Return a concise deterministic digest of recent commit messages."""
+        commits = await self.get_commits(repo, limit=max(1, min(limit, 20)))
+        if commits.startswith("Error:") or commits.startswith("GitHub API error:"):
+            return commits
+        return commits.replace("🔨 **Recent Commits", "🧾 **Commit Summary")
+
 
 def build_github_tools(client: GitHubClient) -> list[Tool]:
     return [
@@ -243,5 +310,38 @@ def build_github_tools(client: GitHubClient) -> list[Tool]:
                 "required": ["repo"],
             },
             func=client.get_issues,
+        ),
+        Tool(
+            name="github_get_commits_today",
+            description="Show commits made today for a repository or across the configured account's recent repositories.",
+            parameters={
+                "type": "object",
+                "properties": {"repo": {"type": "string", "description": "Optional owner/repo. Omitting it uses the configured account."}},
+                "required": [],
+            },
+            func=client.get_commits_today,
+        ),
+        Tool(
+            name="github_get_stale_repositories",
+            description="List configured-account repositories not updated within a number of days.",
+            parameters={
+                "type": "object",
+                "properties": {"days": {"type": "integer", "description": "Staleness threshold in days; defaults to 30."}},
+                "required": [],
+            },
+            func=client.get_stale_repositories,
+        ),
+        Tool(
+            name="github_summarize_commits",
+            description="Summarize the latest commits in a repository.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Repository in owner/repo format."},
+                    "limit": {"type": "integer", "description": "Number of commits to summarize; defaults to 10."},
+                },
+                "required": ["repo"],
+            },
+            func=client.summarize_commits,
         ),
     ]

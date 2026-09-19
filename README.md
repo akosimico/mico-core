@@ -1,4 +1,4 @@
-# MICO — Milestone 4 (Automation Engine)
+# MICO — Milestone 5 (Developer Assistant)
 
 Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
 
@@ -20,6 +20,7 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
 - **Natural AI Tool Calling**: Ask natural questions like *"What time is it in Tokyo?"*, *"Calculate 25 * 4 + 10"*, or *"Add update README to my tasks"*, and MICO automatically invokes the right tools and incorporates results into its response.
 - **Persistent Memory**: Short-term conversation history and long-term user facts and project preferences (`!remember`, `!memories`, `!forget`).
 - **Automation Engine**: A lifecycle-managed background worker delivers reminders, daily task summaries, and weekly GitHub development reports to Discord, with DM fallback.
+- **Developer Assistant**: Project-aware task management, GitHub queries for today's commits and stale repositories, and signed GitHub webhook notifications relayed to Discord.
 - **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
@@ -93,4 +94,6 @@ pytest
 
 ## What's next
 
-See [plan.md](plan.md) for the completed Milestone 4 automation scope and upcoming milestones.
+Configure GitHub webhooks with `GITHUB_WEBHOOK_SECRET` and `GITHUB_WEBHOOK_CHANNEL_ID`, then point GitHub at `POST /api/webhooks/github`. MICO validates `X-Hub-Signature-256` before posting push, issue, and pull-request events to Discord.
+
+See [plan.md](plan.md) for the completed developer-assistant scope and upcoming milestones.

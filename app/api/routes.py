@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import hmac
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.ai.agent import Agent
@@ -15,11 +17,18 @@ router = APIRouter()
 
 # Global reference to Agent (set during application startup)
 _agent: Agent | None = None
+_discord_bot: Any | None = None
 
 
 def set_agent(agent: Agent | None) -> None:
     global _agent
     _agent = agent
+
+
+def set_discord_bot(bot: Any | None) -> None:
+    """Expose the running bot to the webhook route without coupling API startup to Discord."""
+    global _discord_bot
+    _discord_bot = bot
 
 
 def get_agent() -> Agent:
@@ -306,3 +315,58 @@ async def create_user_reminder(req: ReminderCreateRequest) -> dict[str, Any]:
         channel_id=req.channel_id,
     )
     return {"user_id": req.user_id, "result": output}
+
+
+def _format_github_webhook(event: str, payload: dict[str, Any]) -> str | None:
+    repository = payload.get("repository", {}).get("full_name", "repository")
+    sender = payload.get("sender", {}).get("login", "someone")
+    if event == "push":
+        commits = payload.get("commits", [])
+        messages = [commit.get("message", "commit").split("\n")[0] for commit in commits[:5]]
+        branch = payload.get("ref", "").removeprefix("refs/heads/")
+        detail = "\n".join(f"• {message}" for message in messages) or "• No commit details supplied"
+        return f"🔨 **GitHub push** to `{repository}` ({branch}) by @{sender}\n{detail}"
+    if event == "issues":
+        issue = payload.get("issue", {})
+        return f"🐛 **Issue {payload.get('action', 'updated')}** in `{repository}`: #{issue.get('number')} {issue.get('title', '')}"
+    if event == "pull_request":
+        pull = payload.get("pull_request", {})
+        return f"🔀 **Pull request {payload.get('action', 'updated')}** in `{repository}`: #{pull.get('number')} {pull.get('title', '')}"
+    return None
+
+
+@router.post("/webhooks/github", status_code=202)
+async def github_webhook(
+    request: Request,
+    x_github_event: str = Header(default=""),
+    x_hub_signature_256: str = Header(default=""),
+) -> dict[str, Any]:
+    """Validate GitHub's HMAC signature and relay supported events to Discord."""
+    settings = get_settings()
+    if not settings.github_webhook_secret or not settings.github_webhook_channel_id:
+        raise HTTPException(status_code=503, detail="GitHub webhook delivery is not configured.")
+    body = await request.body()
+    expected = "sha256=" + hmac.new(settings.github_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid GitHub webhook signature.")
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid GitHub webhook payload.") from exc
+    message = _format_github_webhook(x_github_event, payload)
+    if message is None:
+        return {"status": "ignored", "event": x_github_event}
+    if _discord_bot is None:
+        raise HTTPException(status_code=503, detail="Discord bot is not connected.")
+    try:
+        channel_id: int | str = int(settings.github_webhook_channel_id) if settings.github_webhook_channel_id.isdigit() else settings.github_webhook_channel_id
+        channel = _discord_bot.get_channel(channel_id)
+        if channel is None and hasattr(_discord_bot, "fetch_channel"):
+            channel = await _discord_bot.fetch_channel(channel_id)
+        if channel is None or not hasattr(channel, "send"):
+            raise RuntimeError("Configured Discord webhook channel is unavailable.")
+        await channel.send(message)
+    except Exception as exc:
+        logger.exception("Failed to relay GitHub webhook to Discord: %s", exc)
+        raise HTTPException(status_code=502, detail="GitHub webhook could not be delivered to Discord.") from exc
+    return {"status": "delivered", "event": x_github_event}

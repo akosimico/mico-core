@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # --- GitHub Integration ---
     github_token: str | None = None
     github_default_user: str | None = None
+    github_webhook_secret: str | None = None
+    github_webhook_channel_id: str | None = None
 
     # --- Agent behavior ---
     max_history_messages: int = 20

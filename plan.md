@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 5 (Milestones 1, 2, 3 & 4 completed)
+**Current milestone:** Milestone 6 (Milestones 1, 2, 3, 4 & 5 completed)
 
 ## What this is
 
@@ -221,10 +221,10 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [x] GitHub activity summary automation
 - [x] Website/service monitoring scheduling foundation (feeds Milestone 6)
 
-### 🟠 Milestone 5 — Developer Assistant
-- [ ] GitHub integration: "what did I commit today", "show open issues", "stale repos", "summarize commits"
-- [ ] Project/task management via chat ("add X to my tasks")
-- [ ] GitHub webhook → Discord push notifications
+### 🟢 Milestone 5 — Developer Assistant (Completed)
+- [x] GitHub integration: "what did I commit today", "show open issues", "stale repos", "summarize commits"
+- [x] Project/task management via chat ("add X to my tasks")
+- [x] GitHub webhook → Discord push notifications
 
 ### 🔴 Milestone 6 — Monitoring
 - [ ] Periodic health-check job (portfolio, API, DB, deployments)
