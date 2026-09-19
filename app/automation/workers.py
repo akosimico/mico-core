@@ -6,10 +6,11 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select
 
 from app.database.database import Database
-from app.database.models import ReminderRecord, ScheduledTaskRecord, TaskRecord
+from app.database.models import MonitoredServiceRecord, ReminderRecord, ScheduledTaskRecord, TaskRecord
 from app.tools.github import GitHubClient
 
 if TYPE_CHECKING:
@@ -99,15 +100,53 @@ class AutomationService:
             ).order_by(ScheduledTaskRecord.task))).scalars().all())
 
 
+class MonitoringService:
+    """User-facing persistence for HTTP service health checks."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def add(self, user_id: str, channel_id: str | None, name: str, url: str, interval_seconds: int = 60) -> MonitoredServiceRecord:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Monitor URL must be a valid http:// or https:// address.")
+        interval = max(15, min(int(interval_seconds), 86400))
+        async with self.db.session() as session:
+            record = MonitoredServiceRecord(user_id=str(user_id), channel_id=channel_id, name=name.strip(), url=url.strip(), interval_seconds=interval)
+            session.add(record)
+            await session.flush()
+            await session.refresh(record)
+            return record
+
+    async def remove(self, user_id: str, monitor_id: int) -> bool:
+        async with self.db.session() as session:
+            record = (await session.execute(select(MonitoredServiceRecord).where(
+                MonitoredServiceRecord.id == int(monitor_id), MonitoredServiceRecord.user_id == str(user_id)
+            ))).scalar_one_or_none()
+            if record is None:
+                return False
+            await session.delete(record)
+            return True
+
+    async def list_for_user(self, user_id: str) -> list[MonitoredServiceRecord]:
+        async with self.db.session() as session:
+            return list((await session.execute(select(MonitoredServiceRecord).where(
+                MonitoredServiceRecord.user_id == str(user_id)
+            ).order_by(MonitoredServiceRecord.id))).scalars().all())
+
+
 class AutomationWorker:
     """One lifecycle-managed worker for one-time reminders and recurring jobs."""
 
     def __init__(self, bot: commands.Bot, db: Database, check_interval_seconds: float = 3.0,
                  default_timezone: str = "Asia/Manila", github_token: str | None = None,
-                 github_default_user: str | None = None):
+                 github_default_user: str | None = None, monitor_timeout_seconds: float = 10.0):
         self.bot, self.db = bot, db
         self.check_interval, self.default_timezone = check_interval_seconds, default_timezone
         self.github = GitHubClient(token=github_token, default_user=github_default_user)
+        self.monitor_timeout_seconds = monitor_timeout_seconds
         self._task: asyncio.Task | None = None
         self._running = False
 
@@ -132,7 +171,7 @@ class AutomationWorker:
         try:
             await self.bot.wait_until_ready()
             while self._running:
-                for check in (self.check_and_dispatch_due_reminders, self.check_and_dispatch_due_scheduled_tasks):
+                for check in (self.check_and_dispatch_due_reminders, self.check_and_dispatch_due_scheduled_tasks, self.check_monitored_services):
                     try:
                         await check()
                     except Exception:
@@ -198,6 +237,55 @@ class AutomationWorker:
                     sent += 1
             except Exception:
                 logger.exception("Scheduled task %s failed for user %s", task, user_id)
+        return sent
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+    async def check_monitored_services(self) -> int:
+        """Run due HTTP health checks and alert only on state transitions."""
+        now = datetime.now(timezone.utc)
+        async with self.db.session() as session:
+            services = list((await session.execute(select(MonitoredServiceRecord).where(
+                MonitoredServiceRecord.enabled == True  # noqa: E712
+            ))).scalars().all())
+            due = [service for service in services if service.last_checked_at is None or now - self._as_utc(service.last_checked_at) >= timedelta(seconds=service.interval_seconds)]
+            for service in due:
+                service.last_checked_at = now
+            await session.flush()
+            payloads = [(service.id, service.user_id, service.channel_id, service.name, service.url) for service in due]
+
+        outcomes: list[tuple[int, str, str | None]] = []
+        async with httpx.AsyncClient(timeout=self.monitor_timeout_seconds, follow_redirects=True) as client:
+            for service_id, _, _, _, url in payloads:
+                try:
+                    response = await client.get(url)
+                    outcomes.append((service_id, "healthy" if 200 <= response.status_code < 400 else "unhealthy", None if 200 <= response.status_code < 400 else f"HTTP {response.status_code}"))
+                except httpx.HTTPError as exc:
+                    outcomes.append((service_id, "unhealthy", str(exc) or exc.__class__.__name__))
+
+        alerts: list[tuple[str, str | None, str]] = []
+        async with self.db.session() as session:
+            for service_id, status, error in outcomes:
+                service = await session.get(MonitoredServiceRecord, service_id)
+                if service is None:
+                    continue
+                previous, service.last_status, service.last_error = service.last_status, status, error
+                if status == "unhealthy" and previous != "unhealthy":
+                    service.failure_started_at = now
+                    alerts.append((service.user_id, service.channel_id, f"🚨 **Service down:** `{service.name}` ({service.url}) — {error}"))
+                elif status == "healthy" and previous == "unhealthy":
+                    started = self._as_utc(service.failure_started_at) if service.failure_started_at else now
+                    downtime = now - started
+                    seconds = int(downtime.total_seconds())
+                    service.failure_started_at = None
+                    service.last_error = None
+                    alerts.append((service.user_id, service.channel_id, f"✅ **Service recovered:** `{service.name}` is healthy again after {seconds // 60}m {seconds % 60}s of downtime."))
+        sent = 0
+        for user_id, channel_id, message in alerts:
+            if await self._send_to_channel_or_dm(user_id, channel_id, message):
+                sent += 1
         return sent
 
     async def _build_scheduled_message(self, user_id: str, task: str) -> str:

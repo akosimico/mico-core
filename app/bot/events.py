@@ -121,6 +121,10 @@ def register_events(bot: commands.Bot) -> None:
             f"• `{p}automation weekly on [DAY] [HH:MM]` — Enable weekly development reports (default: Monday 09:00).\n"
             f"• `{p}automation <daily|weekly> off` — Disable an automation.\n"
             f"• `{p}automations` — Show your automation schedules.\n"
+            "\n**Monitoring:**\n"
+            f"• `{p}monitor add <name> <https://url> [seconds]` — Monitor a service (minimum interval: 15 seconds).\n"
+            f"• `{p}monitor remove <id>` — Stop monitoring a service.\n"
+            f"• `{p}monitors` — Show service health and last check results.\n"
         )
         await ctx.reply(help_text)
 
@@ -309,6 +313,51 @@ def register_events(bot: commands.Bot) -> None:
             lines.append(f"• **{label}** — {'enabled' if record.enabled else 'disabled'}; `{record.schedule}`; next: <t:{int(record.next_run.timestamp())}:R>")
         await ctx.reply("\n".join(lines))
 
+    @bot.command(name="monitor")
+    async def monitor_command(ctx: commands.Context, action: str, *args: str):
+        """Add or remove an HTTP service monitor."""
+        service = getattr(bot, "monitoring_service", None)
+        if service is None:
+            await ctx.reply("Monitoring persistence is not enabled.")
+            return
+        action = action.lower()
+        if action == "add":
+            if len(args) < 2:
+                await ctx.reply("⚠️ Usage: `!monitor add <name> <https://url> [seconds]`")
+                return
+            try:
+                interval = int(args[2]) if len(args) > 2 else 60
+                record = await service.add(str(ctx.author.id), str(ctx.channel.id), args[0], args[1], interval)
+                await ctx.reply(f"✅ Monitoring `{record.name}` every {record.interval_seconds}s: {record.url} (ID: `{record.id}`)")
+            except (ValueError, TypeError) as exc:
+                await ctx.reply(f"⚠️ {exc}")
+            return
+        if action == "remove":
+            if not args or not args[0].isdigit():
+                await ctx.reply("⚠️ Usage: `!monitor remove <id>`")
+                return
+            await ctx.reply("✅ Monitor removed." if await service.remove(str(ctx.author.id), int(args[0])) else "Could not find that monitor.")
+            return
+        await ctx.reply("⚠️ Usage: `!monitor add <name> <https://url> [seconds]` or `!monitor remove <id>`")
+
+    @bot.command(name="monitors")
+    async def monitors_command(ctx: commands.Context):
+        """List monitored services for the current user."""
+        service = getattr(bot, "monitoring_service", None)
+        if service is None:
+            await ctx.reply("Monitoring persistence is not enabled.")
+            return
+        records = await service.list_for_user(str(ctx.author.id))
+        if not records:
+            await ctx.reply("You are not monitoring any services. Use `!monitor add` to get started.")
+            return
+        lines = ["🩺 **Monitored Services:**"]
+        for record in records:
+            state = record.last_status or "pending first check"
+            detail = f" — {record.last_error}" if record.last_error else ""
+            lines.append(f"• `#{record.id}` **{record.name}**: {state}{detail} ({record.url}; every {record.interval_seconds}s)")
+        await ctx.reply("\n".join(lines))
+
     @bot.command(name="repos")
     async def repos_command(ctx: commands.Context, username: str | None = None):
         """List GitHub repositories."""
@@ -397,6 +446,12 @@ def register_events(bot: commands.Bot) -> None:
                     f"⚠️ **Missing automation details.**\n"
                     f"**Usage:** `{prefix}automation daily on [HH:MM]` or `{prefix}automation weekly on [DAY] [HH:MM]`\n"
                     f"**Example:** `{prefix}automation daily on 08:30`"
+                )
+            elif cmd_name == "monitor":
+                await ctx.reply(
+                    f"⚠️ **Missing monitor details.**\n"
+                    f"**Usage:** `{prefix}monitor add <name> <https://url> [seconds]`\n"
+                    f"**Example:** `{prefix}monitor add portfolio https://example.com 60`"
                 )
             elif cmd_name in ("commits", "issues"):
                 await ctx.reply(

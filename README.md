@@ -1,4 +1,4 @@
-# MICO — Milestone 5 (Developer Assistant)
+# MICO — Milestone 6 (Monitoring)
 
 Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
 
@@ -21,6 +21,7 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
 - **Persistent Memory**: Short-term conversation history and long-term user facts and project preferences (`!remember`, `!memories`, `!forget`).
 - **Automation Engine**: A lifecycle-managed background worker delivers reminders, daily task summaries, and weekly GitHub development reports to Discord, with DM fallback.
 - **Developer Assistant**: Project-aware task management, GitHub queries for today's commits and stale repositories, and signed GitHub webhook notifications relayed to Discord.
+- **Service Monitoring**: Configurable HTTP health checks with Discord alerts on failures and recovery notifications that include downtime.
 - **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
@@ -71,6 +72,9 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
   - `!automation weekly on [DAY] [HH:MM]` — Enable a weekly development report (default: Monday 09:00).
   - `!automation <daily|weekly> off` — Disable a recurring automation.
   - `!automations` — List configured automation schedules.
+  - `!monitor add <name> <https://url> [seconds]` — Monitor a service endpoint.
+  - `!monitor remove <id>` — Stop monitoring a service.
+  - `!monitors` — Show monitored services and their latest health state.
   - `!repos [user]` — List GitHub repositories.
   - `!commits <owner/repo>` — View recent commits.
   - `!issues <owner/repo>` — View open issues.

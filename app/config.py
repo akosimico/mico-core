@@ -66,6 +66,7 @@ class Settings(BaseSettings):
 
     # --- Automation ---
     automation_check_interval_seconds: float = 3.0
+    monitor_request_timeout_seconds: float = 10.0
 
     # --- Misc ---
     log_level: str = "INFO"

@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 6 (Milestones 1, 2, 3, 4 & 5 completed)
+**Current milestone:** Milestone 7 (Milestones 1, 2, 3, 4, 5 & 6 completed)
 
 ## What this is
 
@@ -226,10 +226,10 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [x] Project/task management via chat ("add X to my tasks")
 - [x] GitHub webhook → Discord push notifications
 
-### 🔴 Milestone 6 — Monitoring
-- [ ] Periodic health-check job (portfolio, API, DB, deployments)
-- [ ] Failure detection → Discord alert
-- [ ] Recovery detection → Discord recovery message + downtime duration
+### 🟢 Milestone 6 — Monitoring (Completed)
+- [x] Periodic health-check job (portfolio, API, DB, deployments)
+- [x] Failure detection → Discord alert
+- [x] Recovery detection → Discord recovery message + downtime duration
 
 ### 🔴 Milestone 7 — PC Agent
 - [ ] `open_application()`, `open_project()`, `read_file()`, `search_files()`, `check_git_status()` — safe, auto-execute

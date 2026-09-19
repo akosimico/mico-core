@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 
 from app.ai.agent import Agent
-from app.automation.workers import AutomationService, AutomationWorker
+from app.automation.workers import AutomationService, AutomationWorker, MonitoringService
 from app.bot.events import register_events
 from app.config import Settings
 
@@ -36,6 +36,7 @@ def build_bot(settings: Settings, agent: Agent, db: Database | None = None) -> c
             check_interval_seconds=settings.automation_check_interval_seconds,
             github_token=settings.github_token,
             github_default_user=settings.github_default_user,
+            monitor_timeout_seconds=settings.monitor_request_timeout_seconds,
         )
         if db is not None
         else None
@@ -43,6 +44,7 @@ def build_bot(settings: Settings, agent: Agent, db: Database | None = None) -> c
     bot.automation_service = (  # type: ignore[attr-defined]
         AutomationService(db=db, default_timezone=settings.default_timezone) if db is not None else None
     )
+    bot.monitoring_service = MonitoringService(db=db) if db is not None else None  # type: ignore[attr-defined]
 
     register_events(bot)
     return bot
