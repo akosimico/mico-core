@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 8 (Milestones 1, 2, 3, 4, 5, 6 & 7 completed)
+**Current milestone:** Dashboard / Productionize (Milestones 1–8 completed)
 
 ## What this is
 
@@ -238,19 +238,20 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [x] Confirmation flow in Discord ("This will modify your repo. Proceed?")
 - [x] Audit log table + entries for every tool execution
 
-### 🔴 Milestone 8 — Voice
-- [ ] Speech-to-text input
-- [ ] Route transcribed text through existing MICO pipeline
-- [ ] Text-to-speech output
+### 🟢 Milestone 8 — Voice (Completed)
+- [x] Speech-to-text input
+- [x] Route transcribed text through existing MICO pipeline
+- [x] Text-to-speech output
 
-### 📊 Dashboard (after Discord version is solid)
-- [ ] React + Tailwind dashboard: tasks, automations, services, memory counts, recent activity feed
+### 🟢 Dashboard (Completed)
+- [x] React + Tailwind dashboard: tasks, automations, services, memory counts, recent activity feed
 
-### 🐳 Productionize
-- [ ] Dockerfiles for backend, worker, frontend
-- [ ] `docker-compose.yml` (Postgres, Redis, FastAPI, bot, worker, React)
-- [ ] CI/CD basics
-- [ ] Documentation + demo video
+### 🟢 Productionize (Implementation Complete)
+- [x] Dockerfiles for backend, worker, frontend
+- [x] `docker-compose.yml` (PostgreSQL, FastAPI, bot/worker, React)
+- [x] CI/CD basics
+- [x] Documentation + demo-video script
+- [ ] Record the demo video (requires a configured Discord bot and local screen recording)
 
 ---
 

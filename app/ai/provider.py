@@ -15,6 +15,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger("mico.ai.provider")
 
 
+def _gemini_model_unavailable(exc: Exception) -> bool:
+    """A 404 is model-specific; trying the next configured model is safe."""
+    if getattr(exc, "code", None) == 404:
+        return True
+    response_json = getattr(exc, "response_json", {}) or {}
+    return response_json.get("error", {}).get("status") == "NOT_FOUND"
+
+
+def _gemini_quota_exhausted(exc: Exception) -> bool:
+    """Return whether Gemini rejected a request because its quota is spent."""
+    response_json = getattr(exc, "response_json", {}) or {}
+    if response_json.get("error", {}).get("status") == "RESOURCE_EXHAUSTED":
+        return True
+    status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    status_code = status_code or response_json.get("error", {}).get("code")
+    return status_code == 429 and "quota" in str(exc).lower()
+
+
 @dataclass
 class Message:
     role: str  # "user", "assistant", or "system"
@@ -42,6 +60,45 @@ class AIProvider(ABC):
     ) -> str:
         """Generate a response with access to external tools."""
         return await self.generate(messages, system_prompt)
+
+
+class QuotaFailoverProvider(AIProvider):
+    """Use a second provider only when the primary provider has no quota.
+
+    This is deliberately narrower than a general catch-all: invalid prompts,
+    invalid keys, and programming errors must still be visible rather than
+    silently being sent to another provider.
+    """
+
+    def __init__(self, primary: AIProvider, fallback: AIProvider, primary_label: str, fallback_label: str):
+        self.primary = primary
+        self.fallback = fallback
+        self.primary_label = primary_label
+        self.fallback_label = fallback_label
+
+    async def generate(self, messages: list[Message], system_prompt: str) -> str:
+        try:
+            return await self.primary.generate(messages, system_prompt)
+        except Exception as exc:
+            if not _gemini_quota_exhausted(exc):
+                raise
+            logger.warning("%s quota exhausted; switching this request to %s", self.primary_label, self.fallback_label)
+            return await self.fallback.generate(messages, system_prompt)
+
+    async def generate_with_tools(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_registry: ToolRegistry,
+        max_tool_iterations: int = 5,
+    ) -> str:
+        try:
+            return await self.primary.generate_with_tools(messages, system_prompt, tool_registry, max_tool_iterations)
+        except Exception as exc:
+            if not _gemini_quota_exhausted(exc):
+                raise
+            logger.warning("%s quota exhausted; switching this request to %s", self.primary_label, self.fallback_label)
+            return await self.fallback.generate_with_tools(messages, system_prompt, tool_registry, max_tool_iterations)
 
 
 class GeminiProvider(AIProvider):
@@ -91,7 +148,11 @@ class GeminiProvider(AIProvider):
                 last_error = exc
                 continue
 
-            except errors.ClientError:
+            except errors.ClientError as exc:
+                if _gemini_model_unavailable(exc):
+                    logger.warning("Gemini model %r was not found — trying next in chain", model_name)
+                    last_error = exc
+                    continue
                 raise
 
         assert last_error is not None
@@ -166,7 +227,11 @@ class GeminiProvider(AIProvider):
                 logger.warning("Gemini model %r unavailable (%s) — trying next in chain", model_name, exc)
                 last_error = exc
                 continue
-            except errors.ClientError:
+            except errors.ClientError as exc:
+                if _gemini_model_unavailable(exc):
+                    logger.warning("Gemini model %r was not found — trying next in chain", model_name)
+                    last_error = exc
+                    continue
                 raise
 
         assert last_error is not None
@@ -325,7 +390,18 @@ def get_provider(settings: Settings) -> AIProvider:
     if provider_name == "gemini":
         model_chain = settings.gemini_model_chain
         logger.info("Using Gemini provider (model chain: %s)", " -> ".join(model_chain))
-        return GeminiProvider(api_key=settings.gemini_api_key, model_chain=model_chain)
+        gemini = GeminiProvider(api_key=settings.gemini_api_key, model_chain=model_chain)
+        if settings.groq_api_key:
+            groq = OpenAICompatibleProvider(
+                api_key=settings.groq_api_key,
+                model_chain=settings.groq_model_chain,
+                base_url=settings.groq_base_url,
+                provider_label="groq",
+            )
+            logger.info("Gemini quota failover to Groq is enabled")
+            return QuotaFailoverProvider(gemini, groq, "Gemini", "Groq")
+        logger.info("Gemini quota failover is disabled; set GROQ_API_KEY to enable it")
+        return gemini
 
     if provider_name == "groq":
         model_chain = settings.groq_model_chain

@@ -8,6 +8,7 @@ from discord.ext import commands
 from app.ai.agent import Agent
 from app.automation.workers import AutomationService, AutomationWorker, MonitoringService
 from app.tools.pc import PCActionService
+from app.voice import VoiceService
 from app.bot.events import register_events
 from app.config import Settings
 
@@ -29,6 +30,8 @@ def build_bot(settings: Settings, agent: Agent, db: Database | None = None) -> c
     # no globals, no re-reading config/agent from disk on every message.
     bot.mico_agent = agent  # type: ignore[attr-defined]
     bot.mico_settings = settings  # type: ignore[attr-defined]
+    bot.mico_database = db  # type: ignore[attr-defined]
+    bot.mico_is_active = True  # type: ignore[attr-defined]
     bot.automation_worker = (  # type: ignore[attr-defined]
         AutomationWorker(
             bot=bot,
@@ -50,6 +53,12 @@ def build_bot(settings: Settings, agent: Agent, db: Database | None = None) -> c
         PCActionService(db=db, workspace_root=settings.pc_workspace_root, allowed_applications=settings.pc_allowed_applications)
         if db is not None
         else None
+    )
+    bot.voice_service = VoiceService(  # type: ignore[attr-defined]
+        api_key=settings.openai_api_key if settings.voice_enabled else None,
+        stt_model=settings.voice_stt_model,
+        tts_model=settings.voice_tts_model,
+        voice=settings.voice_tts_voice,
     )
 
     register_events(bot)

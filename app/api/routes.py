@@ -5,12 +5,14 @@ import hashlib
 import hmac
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.ai.agent import Agent
 from app.config import get_settings
 from app.database.database import get_database
+from app.database.models import AuditLog, Memory, MonitoredServiceRecord, ReminderRecord, ScheduledTaskRecord, TaskRecord
+from sqlalchemy import func, select
 
 logger = logging.getLogger("mico.api")
 router = APIRouter()
@@ -18,6 +20,7 @@ router = APIRouter()
 # Global reference to Agent (set during application startup)
 _agent: Agent | None = None
 _discord_bot: Any | None = None
+_voice_service: Any | None = None
 
 
 def set_agent(agent: Agent | None) -> None:
@@ -29,6 +32,17 @@ def set_discord_bot(bot: Any | None) -> None:
     """Expose the running bot to the webhook route without coupling API startup to Discord."""
     global _discord_bot
     _discord_bot = bot
+
+
+def set_voice_service(service: Any | None) -> None:
+    global _voice_service
+    _voice_service = service
+
+
+def get_voice_service() -> Any:
+    if _voice_service is None or not _voice_service.enabled:
+        raise HTTPException(status_code=503, detail="Voice is not configured. Set OPENAI_API_KEY to enable it.")
+    return _voice_service
 
 
 def get_agent() -> Agent:
@@ -110,6 +124,24 @@ class ReminderCreateRequest(BaseModel):
     channel_id: str | None = None
 
 
+class VoiceTranscriptResponse(BaseModel):
+    transcript: str
+
+
+class VoiceReplyResponse(BaseModel):
+    transcript: str
+    reply: str
+
+
+class DashboardResponse(BaseModel):
+    task_counts: dict[str, int]
+    reminders_due: int
+    automations_enabled: int
+    memory_count: int
+    monitors: list[dict[str, Any]]
+    recent_activity: list[dict[str, Any]]
+
+
 # --- Endpoints ---
 
 
@@ -132,6 +164,37 @@ async def health_check() -> HealthResponse:
     )
 
 
+@router.get("/dashboard/{user_id}", response_model=DashboardResponse)
+async def dashboard(user_id: str) -> DashboardResponse:
+    """Structured dashboard data for a user; no LLM/tool text parsing required."""
+    db = get_database()
+    async with db.session() as session:
+        task_rows = (await session.execute(select(TaskRecord.status, func.count(TaskRecord.id)).where(
+            TaskRecord.user_id == user_id
+        ).group_by(TaskRecord.status))).all()
+        reminders_due = (await session.execute(select(func.count(ReminderRecord.id)).where(
+            ReminderRecord.user_id == user_id, ReminderRecord.is_completed == False  # noqa: E712
+        ))).scalar_one()
+        enabled = (await session.execute(select(func.count(ScheduledTaskRecord.id)).where(
+            ScheduledTaskRecord.user_id == user_id, ScheduledTaskRecord.enabled == True  # noqa: E712
+        ))).scalar_one()
+        memory_count = (await session.execute(select(func.count(Memory.id)).where(Memory.user_id == user_id))).scalar_one()
+        monitors = list((await session.execute(select(MonitoredServiceRecord).where(
+            MonitoredServiceRecord.user_id == user_id
+        ).order_by(MonitoredServiceRecord.id.desc()))).scalars().all())
+        activity = list((await session.execute(select(AuditLog).where(
+            AuditLog.user_id == user_id
+        ).order_by(AuditLog.created_at.desc()).limit(10))).scalars().all())
+    return DashboardResponse(
+        task_counts={status: count for status, count in task_rows},
+        reminders_due=reminders_due,
+        automations_enabled=enabled,
+        memory_count=memory_count,
+        monitors=[{"id": item.id, "name": item.name, "url": item.url, "status": item.last_status or "pending", "error": item.last_error} for item in monitors],
+        recent_activity=[{"action": item.action, "status": item.status, "created_at": item.created_at.isoformat(), "details": item.details} for item in activity],
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     agent = get_agent()
@@ -147,6 +210,43 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     except Exception as exc:
         logger.exception("Error processing chat message: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/voice/transcribe", response_model=VoiceTranscriptResponse)
+async def transcribe_voice(request: Request, filename: str = Query(default="voice-message.ogg")) -> VoiceTranscriptResponse:
+    service = get_voice_service()
+    try:
+        return VoiceTranscriptResponse(transcript=await service.transcribe(await request.body(), filename, request.headers.get("content-type", "audio/ogg")))
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/voice/reply", response_model=VoiceReplyResponse)
+async def voice_reply(
+    request: Request,
+    conversation_id: str = Query(...),
+    user_id: str | None = Query(default=None),
+    server_id: str | None = Query(default=None),
+    filename: str = Query(default="voice-message.ogg"),
+) -> VoiceReplyResponse:
+    service = get_voice_service()
+    agent = get_agent()
+    try:
+        transcript = await service.transcribe(await request.body(), filename, request.headers.get("content-type", "audio/ogg"))
+        reply = await agent.handle_message(conversation_id=conversation_id, user_message=transcript, user_id=user_id, server_id=server_id)
+        return VoiceReplyResponse(transcript=transcript, reply=reply)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/voice/synthesize")
+async def synthesize_voice(request: Request) -> Response:
+    service = get_voice_service()
+    try:
+        text = (await request.body()).decode("utf-8").strip()
+        return Response(content=await service.synthesize(text), media_type="audio/mpeg")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/memories/{user_id}", response_model=list[MemoryResponse])

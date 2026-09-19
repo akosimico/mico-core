@@ -62,6 +62,19 @@ async def test_health_endpoint(client_and_agent):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_endpoint(client_and_agent):
+    client, _ = client_and_agent
+    await client.post("/api/tasks", json={"user_id": "dashboard-user", "title": "Dashboard task"})
+    response = await client.get("/api/dashboard/dashboard-user")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_counts"]["pending"] == 1
+    assert data["reminders_due"] == 0
+    assert data["memory_count"] == 0
+    assert data["monitors"] == []
+
+
+@pytest.mark.asyncio
 async def test_chat_endpoint(client_and_agent):
     client, _ = client_and_agent
     payload = {

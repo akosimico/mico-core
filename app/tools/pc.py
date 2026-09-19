@@ -121,6 +121,10 @@ class PCActionService:
     async def request_confirmation(self, user_id: str, action: str, arguments: dict[str, Any]) -> str:
         if permission_level(action) != CONFIRM_REQUIRED:
             raise ValueError("Only confirmation-required actions may be queued.")
+        if action == "delete_file":
+            target = self._path(str(arguments.get("path", "")))
+            if not target.is_file():
+                raise ValueError("Only existing files inside the configured PC workspace can be queued for deletion.")
         token = uuid.uuid4().hex[:8].upper()
         async with self.db.session() as session:
             session.add(PendingActionRecord(token=token, user_id=str(user_id), action=action, arguments=arguments, expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)))

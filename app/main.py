@@ -6,15 +6,17 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.agent import Agent
 from app.ai.memory import MemoryService
 from app.ai.provider import get_provider
-from app.api.routes import router as api_router, set_agent, set_discord_bot
+from app.api.routes import router as api_router, set_agent, set_discord_bot, set_voice_service
 from app.bot.client import build_bot
 from app.config import get_settings
 from app.database.database import get_database
 from app.tools import build_default_registry
+from app.voice import VoiceService
 
 logger = logging.getLogger("mico.main")
 
@@ -48,6 +50,12 @@ async def lifespan(app: FastAPI):
         tool_registry=tool_registry,
     )
     set_agent(agent)
+    set_voice_service(VoiceService(
+        api_key=settings.openai_api_key if settings.voice_enabled else None,
+        stt_model=settings.voice_stt_model,
+        tts_model=settings.voice_tts_model,
+        voice=settings.voice_tts_voice,
+    ))
 
     # 3. Start Discord Bot (if enabled and token provided)
     bot_task: asyncio.Task | None = None
@@ -69,7 +77,9 @@ async def lifespan(app: FastAPI):
                 await bot.automation_worker.stop()
             logger.info("Closing Discord bot connection...")
             await bot.close()
+            await db.release_bot_lease()
         set_discord_bot(None)
+        set_voice_service(None)
         if bot_task is not None:
             bot_task.cancel()
             try:
@@ -86,6 +96,13 @@ def create_app() -> FastAPI:
         description="FastAPI backend + Discord Bot with AI provider abstraction, persistent memory, and tool calling",
         version="0.3.0",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["*"],
     )
 
     @app.get("/")
@@ -125,18 +142,33 @@ def main() -> None:
         # Standalone bot mode if API is disabled
         logger.info("API disabled; running Discord bot standalone")
         db = get_database(settings)
-        asyncio.run(db.init_models())
-        memory_service = MemoryService(db)
-        tool_registry = build_default_registry(db=db, settings=settings)
-        provider = get_provider(settings)
-        agent = Agent(
-            provider=provider,
-            max_history_messages=settings.max_history_messages,
-            memory_service=memory_service,
-            tool_registry=tool_registry,
-        )
-        bot = build_bot(settings, agent, db=db)
-        bot.run(settings.discord_token)
+
+        async def run_standalone_bot() -> None:
+            """Run database setup and Discord on one asyncio loop.
+
+            asyncpg connections belong to the event loop that creates them.
+            Calling ``asyncio.run(db.init_models())`` and then ``bot.run()``
+            created two loops, which made a pooled PostgreSQL connection fail
+            when the bot acquired its startup lease.
+            """
+            await db.init_models()
+            memory_service = MemoryService(db)
+            tool_registry = build_default_registry(db=db, settings=settings)
+            provider = get_provider(settings)
+            agent = Agent(
+                provider=provider,
+                max_history_messages=settings.max_history_messages,
+                memory_service=memory_service,
+                tool_registry=tool_registry,
+            )
+            bot = build_bot(settings, agent, db=db)
+            try:
+                await bot.start(settings.discord_token)
+            finally:
+                await bot.close()
+                await db.close()
+
+        asyncio.run(run_standalone_bot())
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from io import BytesIO
 
 import discord
 from discord.ext import commands
@@ -27,6 +28,12 @@ def _parse_time(value: str) -> tuple[int, int]:
 def register_events(bot: commands.Bot) -> None:
     @bot.event
     async def on_ready():
+        db = getattr(bot, "mico_database", None)
+        if db is not None and not await db.acquire_bot_lease():
+            logger.error("Another MICO Discord worker already owns the database lease; closing this duplicate worker.")
+            bot.mico_is_active = False  # type: ignore[attr-defined]
+            await bot.close()
+            return
         user = bot.user
         logger.info("MICO is online as %s (id: %s)", user, user.id if user else "?")
         worker = getattr(bot, "automation_worker", None)
@@ -35,6 +42,8 @@ def register_events(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_message(message: discord.Message):
+        if not getattr(bot, "mico_is_active", True):
+            return
         # Process bot prefix commands first
         await bot.process_commands(message)
 
@@ -53,6 +62,25 @@ def register_events(bot: commands.Bot) -> None:
         content = message.content
         if bot.user:
             content = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+
+        voice_attachment = next(
+            (attachment for attachment in message.attachments if (attachment.content_type or "").startswith("audio/")),
+            None,
+        )
+        is_voice_turn = voice_attachment is not None
+        if is_voice_turn:
+            voice_service = getattr(bot, "voice_service", None)
+            if voice_service is None or not voice_service.enabled:
+                await message.reply("Voice input is not configured. Set `OPENAI_API_KEY` to enable it.")
+                return
+            try:
+                content = await voice_service.transcribe(
+                    await voice_attachment.read(), voice_attachment.filename, voice_attachment.content_type or "audio/ogg"
+                )
+            except Exception:
+                logger.exception("Could not transcribe Discord voice attachment")
+                await message.reply("I couldn't transcribe that audio message. Please try a shorter recording.")
+                return
 
         if not content:
             return
@@ -78,6 +106,12 @@ def register_events(bot: commands.Bot) -> None:
                 return
 
         await _send_long_message(message.channel, reply)
+        if is_voice_turn:
+            try:
+                audio = await bot.voice_service.synthesize(reply)  # type: ignore[attr-defined]
+                await message.channel.send(file=discord.File(BytesIO(audio), filename="mico-response.mp3"))
+            except Exception:
+                logger.exception("Could not synthesize voice response")
 
     # -------------------------------------------------------------------------
     # Help & Core Commands

@@ -57,3 +57,12 @@ async def test_destructive_pc_action_requires_confirmation_then_logs_result(test
     async with test_db.session() as session:
         statuses = [audit.status for audit in (await session.execute(select(AuditLog).where(AuditLog.action == "delete_file"))).scalars().all()]
         assert statuses == ["PENDING", "SUCCESS"]
+
+
+@pytest.mark.asyncio
+async def test_delete_confirmation_rejects_path_outside_workspace(test_db, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    service = PCActionService(test_db, workspace_root=str(workspace))
+    with pytest.raises(ValueError, match="workspace"):
+        await service.request_confirmation("user1", "delete_file", {"path": "../outside.txt"})

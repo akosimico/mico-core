@@ -1,4 +1,4 @@
-# MICO — Milestone 7 (PC Agent)
+# MICO — Complete Build (Milestones 1–8 + Dashboard + Production Scaffolding)
 
 Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
 
@@ -23,6 +23,9 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
 - **Developer Assistant**: Project-aware task management, GitHub queries for today's commits and stale repositories, and signed GitHub webhook notifications relayed to Discord.
 - **Service Monitoring**: Configurable HTTP health checks with Discord alerts on failures and recovery notifications that include downtime.
 - **PC Agent**: Workspace-confined file, search, project, and Git-status actions, plus explicit Discord confirmation for commands, deletion, Git writes, and deployment.
+- **Voice**: Discord audio-attachment transcription, agent routing, and MP3 text-to-speech replies through OpenAI Audio.
+- **Dashboard**: React + Tailwind dashboard for task counts, reminders, automations, service health, and recent audited activity.
+- **Production Scaffolding**: Docker Compose, separate API/Discord-worker containers, CI, operations runbook, and demo script.
 - **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
@@ -92,6 +95,9 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
   - `GET/POST /api/tasks`, `PATCH /api/tasks/{id}/complete` — Manage tasks.
   - `GET/POST /api/reminders` — Manage reminders.
   - `GET/POST/DELETE /api/memories` — Memory CRUD endpoints.
+  - `POST /api/voice/transcribe` — Transcribe a raw audio request body.
+  - `POST /api/voice/reply` — Transcribe raw audio and route it through MICO's agent pipeline.
+  - `POST /api/voice/synthesize` — Return MP3 audio for a raw UTF-8 text request body.
 
 ## Running tests
 
@@ -99,9 +105,19 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
 pytest
 ```
 
+To build the dashboard:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
 ## What's next
 
 Configure GitHub webhooks with `GITHUB_WEBHOOK_SECRET` and `GITHUB_WEBHOOK_CHANNEL_ID`, then point GitHub at `POST /api/webhooks/github`. MICO validates `X-Hub-Signature-256` before posting push, issue, and pull-request events to Discord.
+
+Set `OPENAI_API_KEY` and leave `VOICE_ENABLED=true` to enable audio. In Discord, send an audio attachment in a DM or mention MICO with it in a server; MICO transcribes it, runs the normal agent flow, and returns text plus `mico-response.mp3`.
 
 Set `PC_WORKSPACE_ROOT` to the only directory MICO may access. Optionally allow safe app launches with `PC_ALLOWED_APPLICATIONS=code,notepad`. Modifying actions always require a user-specific `!confirm` code and are written to the audit log.
 

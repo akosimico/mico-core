@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mico
+      POSTGRES_USER: mico
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mico -d mico"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: { context: ., dockerfile: docker/Dockerfile.backend }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mico:${POSTGRES_PASSWORD}@db:5432/mico
+      ENABLE_BOT: "false"
+      API_HOST: 0.0.0.0
+    ports: ["8000:8000"]
+    depends_on: { db: { condition: service_healthy } }
+
+  worker:
+    build: { context: ., dockerfile: docker/Dockerfile.worker }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mico:${POSTGRES_PASSWORD}@db:5432/mico
+      ENABLE_API: "false"
+      ENABLE_BOT: "true"
+      PC_WORKSPACE_ROOT: /workspace
+    volumes:
+      - ./:/workspace
+    depends_on: { db: { condition: service_healthy } }
+
+  frontend:
+    build: { context: ., dockerfile: docker/Dockerfile.frontend }
+    ports: ["3000:80"]
+    depends_on: [backend]
+
+volumes:
+  postgres_data:

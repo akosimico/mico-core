@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -36,11 +37,18 @@ class Database:
             expire_on_commit=False,
             autoflush=False,
         )
+        self._bot_lease_connection: AsyncConnection | None = None
 
     async def init_models(self) -> None:
         """Create all tables defined on Base metadata."""
         logger.info("Initializing database tables for %s", self.database_url)
         async with self.engine.begin() as conn:
+            # Compose starts the API and Discord worker together. ``create_all``
+            # is a check-then-create operation, so PostgreSQL needs a small
+            # cross-process lock to prevent both services creating a table at
+            # the same time during a clean startup.
+            if self.engine.dialect.name == "postgresql":
+                await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('mico-schema-init'))"))
             await conn.run_sync(Base.metadata.create_all)
             # This project currently uses metadata creation rather than Alembic.
             # Preserve existing local databases when Milestone 5 adds task projects.
@@ -57,7 +65,38 @@ class Database:
     async def close(self) -> None:
         """Dispose the underlying engine pool."""
         logger.info("Closing database engine")
+        await self.release_bot_lease()
         await self.engine.dispose()
+
+    async def acquire_bot_lease(self) -> bool:
+        """Ensure only one Discord gateway worker consumes events for this database.
+
+        PostgreSQL advisory locks are held by a dedicated connection for the
+        bot's lifetime. SQLite is used only for local/test mode and has no
+        equivalent cross-process lock, so it remains single-process by design.
+        """
+        if self._bot_lease_connection is not None:
+            return True
+        if self.engine.dialect.name != "postgresql":
+            return True
+        connection = await self.engine.connect()
+        acquired = bool((await connection.execute(
+            text("SELECT pg_try_advisory_lock(hashtext('mico-discord-bot'))")
+        )).scalar_one())
+        if acquired:
+            self._bot_lease_connection = connection
+            return True
+        await connection.close()
+        return False
+
+    async def release_bot_lease(self) -> None:
+        if self._bot_lease_connection is None:
+            return
+        try:
+            await self._bot_lease_connection.execute(text("SELECT pg_advisory_unlock(hashtext('mico-discord-bot'))"))
+        finally:
+            await self._bot_lease_connection.close()
+            self._bot_lease_connection = None
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:

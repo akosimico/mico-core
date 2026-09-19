@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from google.genai import errors
 
-from app.ai.provider import GeminiProvider, Message
+from app.ai.provider import AIProvider, GeminiProvider, Message, QuotaFailoverProvider
 from app.tools.base import ToolRegistry
 from app.tools.system import get_time_tool
 
@@ -14,6 +14,26 @@ def make_server_error() -> errors.ServerError:
 
 def make_client_error() -> errors.ClientError:
     return errors.ClientError(code=400, response_json={"error": {"message": "bad request"}})
+
+
+def make_model_not_found_error() -> errors.ClientError:
+    return errors.ClientError(code=404, response_json={"error": {"message": "model not found", "status": "NOT_FOUND"}})
+
+
+def make_quota_error() -> errors.ClientError:
+    return errors.ClientError(code=429, response_json={"error": {"message": "quota exhausted", "status": "RESOURCE_EXHAUSTED"}})
+
+
+class StubProvider(AIProvider):
+    def __init__(self, response: str | Exception):
+        self.response = response
+        self.calls = 0
+
+    async def generate(self, messages: list[Message], system_prompt: str) -> str:
+        self.calls += 1
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
 
 
 def build_provider_with_fake_client(chat_create_side_effects):
@@ -91,6 +111,42 @@ async def test_client_error_does_not_fall_back():
         await provider.generate([Message(role="user", content="hello")], "system prompt")
 
     assert fake_client.chats.create.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_falls_back_when_primary_model_is_not_found():
+    provider, fake_client = build_provider_with_fake_client(
+        [make_model_not_found_error(), make_chat_returning("hi from model-b")]
+    )
+
+    reply = await provider.generate([Message(role="user", content="hello")], "system prompt")
+
+    assert reply == "hi from model-b"
+    assert fake_client.chats.create.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_uses_groq_when_gemini_quota_is_exhausted():
+    primary = StubProvider(make_quota_error())
+    fallback = StubProvider("reply from groq")
+    provider = QuotaFailoverProvider(primary, fallback, "Gemini", "Groq")
+
+    reply = await provider.generate([Message(role="user", content="hello")], "system prompt")
+
+    assert reply == "reply from groq"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_does_not_fail_over_for_non_quota_gemini_errors():
+    primary = StubProvider(make_client_error())
+    fallback = StubProvider("reply from groq")
+    provider = QuotaFailoverProvider(primary, fallback, "Gemini", "Groq")
+
+    with pytest.raises(errors.ClientError):
+        await provider.generate([Message(role="user", content="hello")], "system prompt")
+    assert fallback.calls == 0
 
 
 @pytest.mark.asyncio

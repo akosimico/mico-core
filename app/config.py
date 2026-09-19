@@ -37,13 +37,13 @@ class Settings(BaseSettings):
 
     # --- Gemini ---
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.0-flash"
-    # Tried in order if the primary model returns a server-side error (503
-    # overloaded, 500, etc). Comma-separated in .env, e.g.:
-    # GEMINI_FALLBACK_MODELS=gemini-1.5-flash,gemini-1.5-flash-8b
-    gemini_fallback_models: str = "gemini-1.5-flash,gemini-1.5-flash-8b"
+    gemini_model: str = "gemini-2.5-flash"
+    # Tried in order if a model is unavailable (404) or temporarily fails.
+    gemini_fallback_models: str = "gemini-2.5-flash-lite"
 
     # --- Groq (OpenAI-compatible) ---
+    # When AI_PROVIDER=gemini, a configured GROQ_API_KEY is automatically
+    # used when Gemini returns quota exhausted (429 RESOURCE_EXHAUSTED).
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
     groq_fallback_models: str = "llama-3.1-8b-instant"
@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_fallback_models: str = ""
     openai_base_url: str | None = None  # set for OpenRouter, leave unset for OpenAI
+
+    # --- Voice (OpenAI Audio) ---
+    voice_enabled: bool = True
+    voice_stt_model: str = "gpt-4o-mini-transcribe"
+    voice_tts_model: str = "gpt-4o-mini-tts"
+    voice_tts_voice: str = "alloy"
 
     # --- GitHub Integration ---
     github_token: str | None = None
