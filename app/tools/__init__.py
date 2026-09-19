@@ -6,6 +6,7 @@ from app.config import Settings, get_settings
 from app.database.database import Database, get_database
 from app.tools.base import Tool, ToolRegistry
 from app.tools.github import GitHubClient, build_github_tools
+from app.tools.pc import PCActionService, build_pc_tools
 from app.tools.system import calculator_tool, get_time_tool
 from app.tools.tasks import TaskService, build_task_tools
 
@@ -27,12 +28,21 @@ def build_default_registry(
     for tool in build_task_tools(task_service):
         registry.register(tool)
 
-    # GitHub tools (Tools 8 to 10)
+    # GitHub tools
     gh_client = GitHubClient(
         token=cfg.github_token,
         default_user=cfg.github_default_user,
     )
     for tool in build_github_tools(gh_client):
+        registry.register(tool)
+
+    # Local PC tools (read-only tools auto-execute; modifying tools require confirmation)
+    pc_service = PCActionService(
+        db=db or get_database(cfg),
+        workspace_root=cfg.pc_workspace_root,
+        allowed_applications=cfg.pc_allowed_applications,
+    )
+    for tool in build_pc_tools(pc_service):
         registry.register(tool)
 
     return registry

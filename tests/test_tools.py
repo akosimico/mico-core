@@ -191,11 +191,11 @@ async def test_tool_registry(test_db):
 
     # Test schema exports
     openai_tools = registry.to_openai_tools()
-    assert len(openai_tools) == 15
+    assert len(openai_tools) == 25
     assert openai_tools[0]["type"] == "function"
 
     gemini_decls = registry.to_gemini_declarations()
-    assert len(gemini_decls) == 15
+    assert len(gemini_decls) == 25
     assert "name" in gemini_decls[0]
 
     # Test direct execution

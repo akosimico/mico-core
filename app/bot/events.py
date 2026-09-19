@@ -125,6 +125,9 @@ def register_events(bot: commands.Bot) -> None:
             f"• `{p}monitor add <name> <https://url> [seconds]` — Monitor a service (minimum interval: 15 seconds).\n"
             f"• `{p}monitor remove <id>` — Stop monitoring a service.\n"
             f"• `{p}monitors` — Show service health and last check results.\n"
+            "\n**PC Agent:**\n"
+            f"• `{p}confirm <code>` — Execute a queued modifying PC action.\n"
+            f"• `{p}cancel <code>` — Cancel a queued PC action.\n"
         )
         await ctx.reply(help_text)
 
@@ -358,6 +361,24 @@ def register_events(bot: commands.Bot) -> None:
             lines.append(f"• `#{record.id}` **{record.name}**: {state}{detail} ({record.url}; every {record.interval_seconds}s)")
         await ctx.reply("\n".join(lines))
 
+    @bot.command(name="confirm")
+    async def confirm_command(ctx: commands.Context, token: str):
+        """Confirm a queued PC action owned by the invoking user."""
+        service = getattr(bot, "pc_service", None)
+        if service is None:
+            await ctx.reply("PC action service is not enabled.")
+            return
+        await ctx.reply(await service.confirm(str(ctx.author.id), token))
+
+    @bot.command(name="cancel")
+    async def cancel_command(ctx: commands.Context, token: str):
+        """Cancel a queued PC action owned by the invoking user."""
+        service = getattr(bot, "pc_service", None)
+        if service is None:
+            await ctx.reply("PC action service is not enabled.")
+            return
+        await ctx.reply("✅ Pending action cancelled." if await service.cancel(str(ctx.author.id), token) else "No pending action found for that confirmation code.")
+
     @bot.command(name="repos")
     async def repos_command(ctx: commands.Context, username: str | None = None):
         """List GitHub repositories."""
@@ -452,6 +473,12 @@ def register_events(bot: commands.Bot) -> None:
                     f"⚠️ **Missing monitor details.**\n"
                     f"**Usage:** `{prefix}monitor add <name> <https://url> [seconds]`\n"
                     f"**Example:** `{prefix}monitor add portfolio https://example.com 60`"
+                )
+            elif cmd_name in ("confirm", "cancel"):
+                await ctx.reply(
+                    f"⚠️ **Missing confirmation code.**\n"
+                    f"**Usage:** `{prefix}{cmd_name} <code>`\n"
+                    f"**Example:** `{prefix}{cmd_name} ABCD1234`"
                 )
             elif cmd_name in ("commits", "issues"):
                 await ctx.reply(

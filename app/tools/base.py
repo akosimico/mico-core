@@ -24,6 +24,8 @@ class Tool:
                 result = await self.func(**kwargs)
             else:
                 result = self.func(**kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
 
             if isinstance(result, str):
                 return result

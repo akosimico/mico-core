@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 7 (Milestones 1, 2, 3, 4, 5 & 6 completed)
+**Current milestone:** Milestone 8 (Milestones 1, 2, 3, 4, 5, 6 & 7 completed)
 
 ## What this is
 
@@ -231,12 +231,12 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [x] Failure detection → Discord alert
 - [x] Recovery detection → Discord recovery message + downtime duration
 
-### 🔴 Milestone 7 — PC Agent
-- [ ] `open_application()`, `open_project()`, `read_file()`, `search_files()`, `check_git_status()` — safe, auto-execute
-- [ ] `run_command()`, `delete_file()`, `git_push()`, `git_reset()`, `deploy()` — require confirmation
-- [ ] Permission system (tool → permission level)
-- [ ] Confirmation flow in Discord ("This will modify your repo. Proceed?")
-- [ ] Audit log table + entries for every tool execution
+### 🟢 Milestone 7 — PC Agent (Completed)
+- [x] `open_application()`, `open_project()`, `read_file()`, `search_files()`, `check_git_status()` — safe, auto-execute
+- [x] `run_command()`, `delete_file()`, `git_push()`, `git_reset()`, `deploy()` — require confirmation
+- [x] Permission system (tool → permission level)
+- [x] Confirmation flow in Discord ("This will modify your repo. Proceed?")
+- [x] Audit log table + entries for every tool execution
 
 ### 🔴 Milestone 8 — Voice
 - [ ] Speech-to-text input

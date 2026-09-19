@@ -1,4 +1,4 @@
-# MICO — Milestone 6 (Monitoring)
+# MICO — Milestone 7 (PC Agent)
 
 Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
 
@@ -22,6 +22,7 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
 - **Automation Engine**: A lifecycle-managed background worker delivers reminders, daily task summaries, and weekly GitHub development reports to Discord, with DM fallback.
 - **Developer Assistant**: Project-aware task management, GitHub queries for today's commits and stale repositories, and signed GitHub webhook notifications relayed to Discord.
 - **Service Monitoring**: Configurable HTTP health checks with Discord alerts on failures and recovery notifications that include downtime.
+- **PC Agent**: Workspace-confined file, search, project, and Git-status actions, plus explicit Discord confirmation for commands, deletion, Git writes, and deployment.
 - **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
@@ -75,6 +76,8 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
   - `!monitor add <name> <https://url> [seconds]` — Monitor a service endpoint.
   - `!monitor remove <id>` — Stop monitoring a service.
   - `!monitors` — Show monitored services and their latest health state.
+  - `!confirm <code>` — Execute a pending modifying PC action.
+  - `!cancel <code>` — Cancel a pending PC action.
   - `!repos [user]` — List GitHub repositories.
   - `!commits <owner/repo>` — View recent commits.
   - `!issues <owner/repo>` — View open issues.
@@ -100,4 +103,6 @@ pytest
 
 Configure GitHub webhooks with `GITHUB_WEBHOOK_SECRET` and `GITHUB_WEBHOOK_CHANNEL_ID`, then point GitHub at `POST /api/webhooks/github`. MICO validates `X-Hub-Signature-256` before posting push, issue, and pull-request events to Discord.
 
-See [plan.md](plan.md) for the completed developer-assistant scope and upcoming milestones.
+Set `PC_WORKSPACE_ROOT` to the only directory MICO may access. Optionally allow safe app launches with `PC_ALLOWED_APPLICATIONS=code,notepad`. Modifying actions always require a user-specific `!confirm` code and are written to the audit log.
+
+See [plan.md](plan.md) for completed milestones and upcoming work.

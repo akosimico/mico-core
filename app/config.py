@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     automation_check_interval_seconds: float = 3.0
     monitor_request_timeout_seconds: float = 10.0
 
+    # --- Local PC agent ---
+    pc_workspace_root: str = "."
+    pc_allowed_applications: str = ""
+
     # --- Misc ---
     log_level: str = "INFO"
 
