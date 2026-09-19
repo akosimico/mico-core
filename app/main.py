@@ -64,8 +64,8 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down MICO...")
         if bot is not None:
-            if hasattr(bot, "reminder_worker") and bot.reminder_worker:
-                await bot.reminder_worker.stop()
+            if hasattr(bot, "automation_worker") and bot.automation_worker:
+                await bot.automation_worker.stop()
             logger.info("Closing Discord bot connection...")
             await bot.close()
         if bot_task is not None:

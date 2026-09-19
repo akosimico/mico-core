@@ -6,9 +6,22 @@ import re
 import discord
 from discord.ext import commands
 
+from app.automation.workers import DAILY_SUMMARY, WEEKLY_DEVELOPMENT_REPORT
+
 logger = logging.getLogger("mico.bot.events")
 
 DISCORD_MESSAGE_LIMIT = 2000
+WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+
+
+def _parse_time(value: str) -> tuple[int, int]:
+    parts = value.split(":")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise ValueError("Time must use 24-hour HH:MM format.")
+    hour, minute = int(parts[0]), int(parts[1])
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("Time must be between 00:00 and 23:59.")
+    return hour, minute
 
 
 def register_events(bot: commands.Bot) -> None:
@@ -16,7 +29,7 @@ def register_events(bot: commands.Bot) -> None:
     async def on_ready():
         user = bot.user
         logger.info("MICO is online as %s (id: %s)", user, user.id if user else "?")
-        worker = getattr(bot, "reminder_worker", None)
+        worker = getattr(bot, "automation_worker", None)
         if worker is not None:
             await worker.start()
 
@@ -101,6 +114,13 @@ def register_events(bot: commands.Bot) -> None:
             f"• `{p}repos [user]` — List GitHub repositories.\n"
             f"• `{p}commits <owner/repo>` — View latest repository commits.\n"
             f"• `{p}issues <owner/repo>` — View open issues in a repository.\n"
+        )
+        help_text += (
+            "\n**Automations:**\n"
+            f"• `{p}automation daily on [HH:MM]` — Enable daily task summaries (default: 08:00).\n"
+            f"• `{p}automation weekly on [DAY] [HH:MM]` — Enable weekly development reports (default: Monday 09:00).\n"
+            f"• `{p}automation <daily|weekly> off` — Disable an automation.\n"
+            f"• `{p}automations` — Show your automation schedules.\n"
         )
         await ctx.reply(help_text)
 
@@ -242,6 +262,53 @@ def register_events(bot: commands.Bot) -> None:
         else:
             await ctx.reply("Tool execution is not enabled.")
 
+    @bot.command(name="automation")
+    async def automation_command(ctx: commands.Context, kind: str, action: str, *options: str):
+        """Configure daily summaries or weekly development reports."""
+        service = getattr(bot, "automation_service", None)
+        if service is None:
+            await ctx.reply("Automation persistence is not enabled.")
+            return
+        kind, action = kind.lower(), action.lower()
+        task = DAILY_SUMMARY if kind == "daily" else WEEKLY_DEVELOPMENT_REPORT if kind == "weekly" else None
+        if task is None or action not in {"on", "off"}:
+            await ctx.reply("Usage: `!automation daily on [HH:MM]`, `!automation weekly on [DAY] [HH:MM]`, or `!automation <daily|weekly> off`")
+            return
+        if action == "off":
+            await ctx.reply(f"{'✅ ' + kind.title() + ' automation disabled.' if await service.disable(str(ctx.author.id), task) else 'No ' + kind + ' automation is configured yet.'}")
+            return
+        try:
+            if kind == "daily":
+                hour, minute = _parse_time(options[0] if options else "08:00")
+                schedule = f"{minute} {hour} * * *"
+            else:
+                day = options[0].lower() if options else "monday"
+                if day not in WEEKDAYS:
+                    raise ValueError("Day must be Monday through Sunday.")
+                hour, minute = _parse_time(options[1] if len(options) > 1 else "09:00")
+                schedule = f"{minute} {hour} * * {WEEKDAYS[day]}"
+            record = await service.enable(str(ctx.author.id), task, schedule, str(ctx.channel.id))
+            await ctx.reply(f"✅ {kind.title()} automation enabled for `{schedule}` ({bot.mico_settings.default_timezone}). Next run: <t:{int(record.next_run.timestamp())}:R>.")  # type: ignore[attr-defined]
+        except ValueError as exc:
+            await ctx.reply(f"⚠️ {exc}")
+
+    @bot.command(name="automations")
+    async def automations_command(ctx: commands.Context):
+        """List recurring automations configured for the current user."""
+        service = getattr(bot, "automation_service", None)
+        if service is None:
+            await ctx.reply("Automation persistence is not enabled.")
+            return
+        records = await service.list_for_user(str(ctx.author.id))
+        if not records:
+            await ctx.reply("You have no configured automations. Use `!automation daily on` to get started.")
+            return
+        lines = ["⚙️ **Your Automations:**"]
+        for record in records:
+            label = "Daily summary" if record.task == DAILY_SUMMARY else "Weekly development report"
+            lines.append(f"• **{label}** — {'enabled' if record.enabled else 'disabled'}; `{record.schedule}`; next: <t:{int(record.next_run.timestamp())}:R>")
+        await ctx.reply("\n".join(lines))
+
     @bot.command(name="repos")
     async def repos_command(ctx: commands.Context, username: str | None = None):
         """List GitHub repositories."""
@@ -324,6 +391,12 @@ def register_events(bot: commands.Bot) -> None:
                     f"⚠️ **Missing task ID.**\n"
                     f"**Usage:** `{prefix}taskdone <task_id>`\n"
                     f"**Example:** `{prefix}taskdone 1` (use `{prefix}tasks` to see IDs)"
+                )
+            elif cmd_name == "automation":
+                await ctx.reply(
+                    f"⚠️ **Missing automation details.**\n"
+                    f"**Usage:** `{prefix}automation daily on [HH:MM]` or `{prefix}automation weekly on [DAY] [HH:MM]`\n"
+                    f"**Example:** `{prefix}automation daily on 08:30`"
                 )
             elif cmd_name in ("commits", "issues"):
                 await ctx.reply(

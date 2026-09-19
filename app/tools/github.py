@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -140,6 +141,48 @@ class GitHubClient:
             except Exception as exc:
                 logger.exception("GitHub get_issues failed: %s", exc)
                 return f"GitHub API error: {exc}"
+
+    async def get_activity_summary(self) -> str:
+        """Summarize the configured account's recent repository activity."""
+        if not self.default_user and not self.token:
+            return "**GitHub activity:** unavailable — configure `GITHUB_DEFAULT_USER` or `GITHUB_TOKEN`."
+        user = self.default_user
+        headers = self._get_headers()
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=15.0) as client:
+                url = (f"{GITHUB_API_BASE}/users/{user}/repos?sort=updated&per_page=10" if user
+                       else f"{GITHUB_API_BASE}/user/repos?sort=updated&per_page=10")
+                repos_response = await client.get(url)
+                repos_response.raise_for_status()
+                repos = repos_response.json()
+                since = datetime.now(timezone.utc) - timedelta(days=7)
+                commits: list[str] = []
+                issue_count = 0
+                for repo in repos:
+                    name = repo.get("full_name")
+                    if not name:
+                        continue
+                    commits_response = await client.get(f"{GITHUB_API_BASE}/repos/{name}/commits?per_page=5")
+                    if commits_response.status_code == 200:
+                        for commit in commits_response.json():
+                            author_date = commit.get("commit", {}).get("author", {}).get("date", "")
+                            try:
+                                committed_at = datetime.fromisoformat(author_date.replace("Z", "+00:00"))
+                            except ValueError:
+                                continue
+                            if committed_at >= since:
+                                message = commit.get("commit", {}).get("message", "").split("\n")[0]
+                                commits.append(f"• {name}: {message}")
+                    issues_response = await client.get(f"{GITHUB_API_BASE}/repos/{name}/issues?state=open&per_page=100")
+                    if issues_response.status_code == 200:
+                        issue_count += sum(1 for item in issues_response.json() if "pull_request" not in item)
+                lines = ["🐙 **GitHub activity (last 7 days)**"]
+                lines.append(f"Open issues across recent repositories: **{issue_count}**")
+                lines.extend(commits[:10] or ["No commits found in the last 7 days."])
+                return "\n".join(lines)
+        except Exception as exc:
+            logger.exception("GitHub activity summary failed: %s", exc)
+            return f"**GitHub activity:** unavailable ({exc})"
 
 
 def build_github_tools(client: GitHubClient) -> list[Tool]:

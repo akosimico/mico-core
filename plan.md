@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** September 2026
-**Current milestone:** Milestone 4 (Milestones 1, 2 & 3 completed)
+**Current milestone:** Milestone 5 (Milestones 1, 2, 3 & 4 completed)
 
 ## What this is
 
@@ -211,15 +211,15 @@ The biggest milestone — MICO stops being "just a chatbot."
 - [x] Tool 10: `github_get_issues()`
 - [x] Update `!help` and `on_command_error` with any new prefix commands for tools
 
-### 🟡 Milestone 4 — Automation Engine
-- [ ] `scheduled_tasks` table: `id, user_id, task, schedule, next_run, enabled`
-- [ ] Background worker/scheduler loop
-- [ ] Reminder automation
-- [ ] Daily summary automation
-- [ ] Weekly development report
-- [ ] Overdue task detection
-- [ ] GitHub activity summary automation
-- [ ] Website/service monitoring automation (feeds Milestone 6)
+### 🟢 Milestone 4 — Automation Engine (Completed)
+- [x] `scheduled_tasks` table: `id, user_id, task, schedule, next_run, enabled`
+- [x] Background worker/scheduler loop
+- [x] Reminder automation
+- [x] Daily summary automation
+- [x] Weekly development report
+- [x] Overdue task detection
+- [x] GitHub activity summary automation
+- [x] Website/service monitoring scheduling foundation (feeds Milestone 6)
 
 ### 🟠 Milestone 5 — Developer Assistant
 - [ ] GitHub integration: "what did I commit today", "show open issues", "stale repos", "summarize commits"

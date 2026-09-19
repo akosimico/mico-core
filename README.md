@@ -1,4 +1,4 @@
-# MICO — Milestone 3 (Core + Memory + Tool Calling)
+# MICO — Milestone 4 (Automation Engine)
 
 Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
 
@@ -19,6 +19,7 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
   10. `github_get_issues(repo, state, limit)` — View issues on a repository.
 - **Natural AI Tool Calling**: Ask natural questions like *"What time is it in Tokyo?"*, *"Calculate 25 * 4 + 10"*, or *"Add update README to my tasks"*, and MICO automatically invokes the right tools and incorporates results into its response.
 - **Persistent Memory**: Short-term conversation history and long-term user facts and project preferences (`!remember`, `!memories`, `!forget`).
+- **Automation Engine**: A lifecycle-managed background worker delivers reminders, daily task summaries, and weekly GitHub development reports to Discord, with DM fallback.
 - **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
 
 ## Setup
@@ -65,6 +66,10 @@ Personal AI agent accessible through Discord and REST API, featuring multi-turn 
   - `!task <title>` — Add a task.
   - `!tasks [status]` — List tasks.
   - `!taskdone <id>` — Mark a task completed.
+  - `!automation daily on [HH:MM]` — Enable a daily task summary (default: 08:00).
+  - `!automation weekly on [DAY] [HH:MM]` — Enable a weekly development report (default: Monday 09:00).
+  - `!automation <daily|weekly> off` — Disable a recurring automation.
+  - `!automations` — List configured automation schedules.
   - `!repos [user]` — List GitHub repositories.
   - `!commits <owner/repo>` — View recent commits.
   - `!issues <owner/repo>` — View open issues.
@@ -88,4 +93,4 @@ pytest
 
 ## What's next
 
-See [plan.md](plan.md) — Milestone 4 adds the Automation Engine (background worker loop, automated reminders, daily summaries, and health checks).
+See [plan.md](plan.md) for the completed Milestone 4 automation scope and upcoming milestones.

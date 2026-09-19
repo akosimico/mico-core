@@ -113,6 +113,24 @@ class ReminderRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ScheduledTaskRecord(Base):
+    """A recurring automation owned by a Discord user."""
+
+    __tablename__ = "scheduled_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    task: Mapped[str] = mapped_column(String(64), index=True)  # daily_summary, weekly_development_report
+    schedule: Mapped[str] = mapped_column(String(64))  # five-field cron in DEFAULT_TIMEZONE
+    next_run: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    enabled: Mapped[bool] = mapped_column(default=True, index=True)
+    channel_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

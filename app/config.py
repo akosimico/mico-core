@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # --- Agent behavior ---
     max_history_messages: int = 20
 
+    # --- Automation ---
+    automation_check_interval_seconds: float = 3.0
+
     # --- Misc ---
     log_level: str = "INFO"
 
