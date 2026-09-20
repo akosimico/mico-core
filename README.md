@@ -1,6 +1,6 @@
 # Mico Core
 
-Mico Core is a self-hosted personal AI automation assistant for Discord. It combines natural conversation, tool calling, memory, reminders, GitHub workflows, voice, and a lightweight dashboard in one project you can run with your own credentials.
+Mico Core is a self-hosted personal AI automation assistant for Discord. It combines natural conversation, tool calling, memory, reminders, GitHub workflows, and a lightweight dashboard in one project you can run with your own credentials.
 
 Built for developers who want a capable assistant without handing control of their workflows, data, or provider accounts to a hosted bot.
 
@@ -11,7 +11,6 @@ Built for developers who want a capable assistant without handing control of the
 - Create tasks and reminders, remember useful facts, and schedule daily or weekly summaries.
 - Query GitHub repositories, commits, and issues; optionally receive signed webhook notifications.
 - Monitor HTTP services and receive outage and recovery alerts.
-- Transcribe Discord audio and return text-to-speech responses with OpenAI Audio.
 - Work with a confirmation-gated local PC agent for workspace files, Git status, commands, and deployments.
 - View tasks, reminders, automations, service health, and activity in the React dashboard.
 
@@ -88,7 +87,6 @@ Copy `.env.example` to `.env`; it documents every supported setting. Do not comm
 | OpenAI bot | `DISCORD_TOKEN`, `AI_PROVIDER=openai`, `OPENAI_API_KEY` |
 | OpenRouter bot | `DISCORD_TOKEN`, `AI_PROVIDER=openrouter`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
 | API-only mode | `ENABLE_BOT=false` plus an AI provider key |
-| Voice replies | `VOICE_ENABLED=true`, `OPENAI_API_KEY` |
 | Docker/PostgreSQL | `POSTGRES_PASSWORD` and `docker compose up --build` |
 
 `GITHUB_TOKEN`, webhook settings, monitoring, automation schedules, and PC-agent settings are optional. See the comments in `.env.example` before enabling them.
@@ -114,13 +112,13 @@ You can also use fast command shortcuts:
 | `!remember <fact>` / `!memories` / `!forget <id>` | Manage long-term memory. |
 | `!repos [user]` / `!commits <owner/repo>` / `!issues <owner/repo>` | Query GitHub. |
 | `!automation ...` / `!automations` | Manage daily and weekly summaries. |
-| `!monitor add|remove|list` | Manage HTTP service monitoring. |
+| `!monitor add\|remove\|list` | Manage HTTP service monitoring. |
 | `!confirm <code>` / `!cancel <code>` | Approve or cancel a queued PC-agent action. |
 | `!help` | Show the complete Discord command guide. |
 
 ## API and dashboard
 
-The REST API supports chat, tool inspection/execution, tasks, reminders, memories, voice, GitHub webhooks, and dashboard data. Explore the complete schema at `/docs` after starting the API.
+The REST API supports chat, tool inspection/execution, tasks, reminders, memories, GitHub webhooks, and dashboard data. Explore the complete schema at `/docs` after starting the API.
 
 To run the dashboard locally:
 
