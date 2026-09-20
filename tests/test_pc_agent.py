@@ -60,6 +60,64 @@ async def test_destructive_pc_action_requires_confirmation_then_logs_result(test
 
 
 @pytest.mark.asyncio
+async def test_write_file_requires_confirmation_and_stays_in_workspace(test_db, tmp_path):
+    workspace = tmp_path / "workspace"
+    target_dir = workspace / "test"
+    target_dir.mkdir(parents=True)
+    service = PCActionService(test_db, workspace_root=str(workspace))
+
+    queued = await service.request_confirmation(
+        "user1", "write_file", {"path": "test/calc.py", "content": "print(2 + 2)\n"}
+    )
+    token = queued.split("!confirm ")[1].split()[0]
+    target = target_dir / "calc.py"
+    assert not target.exists()
+
+    result = await service.confirm("user1", token)
+    assert "Created `test/calc.py`" in result
+    assert target.read_text(encoding="utf-8") == "print(2 + 2)\n"
+
+    with pytest.raises(ValueError, match="workspace"):
+        await service.request_confirmation(
+            "user1", "write_file", {"path": "../outside.py", "content": "unsafe"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_python_file_requires_confirmation_and_returns_output(test_db, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = workspace / "calc.py"
+    script.write_text("print(2 + 2)\n", encoding="utf-8")
+    service = PCActionService(test_db, workspace_root=str(workspace))
+
+    queued = await service.request_confirmation("user1", "run_python_file", {"path": "calc.py"})
+    token = queued.split("!confirm ")[1].split()[0]
+    assert await service.confirm("user1", token) == "4"
+
+    with pytest.raises(ValueError, match="Python"):
+        await service.request_confirmation("user1", "run_python_file", {"path": "missing.py"})
+
+
+@pytest.mark.asyncio
+async def test_write_and_run_python_file_uses_new_content_after_one_confirmation(test_db, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = workspace / "calc.py"
+    script.write_text("print('old')\n", encoding="utf-8")
+    service = PCActionService(test_db, workspace_root=str(workspace))
+
+    queued = await service.request_confirmation(
+        "user1",
+        "write_and_run_python_file",
+        {"path": "calc.py", "content": "print('hello mico pogi')\n"},
+    )
+    token = queued.split("!confirm ")[1].split()[0]
+    assert await service.confirm("user1", token) == "hello mico pogi"
+    assert script.read_text(encoding="utf-8") == "print('hello mico pogi')\n"
+
+
+@pytest.mark.asyncio
 async def test_delete_confirmation_rejects_path_outside_workspace(test_db, tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()

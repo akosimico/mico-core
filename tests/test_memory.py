@@ -115,12 +115,12 @@ async def test_prompt_formatting(memory_service):
         user_id=user_id,
         content="Stack: FastAPI and PostgreSQL",
         category="project",
-        project_name="mico-jarvis",
+        project_name="mico-core",
     )
 
     formatted = await memory_service.format_memories_for_prompt(user_id=user_id)
     assert "Prefers concise code" in formatted
-    assert "[mico-jarvis] Stack: FastAPI and PostgreSQL" in formatted
+    assert "[mico-core] Stack: FastAPI and PostgreSQL" in formatted
 
 
 @pytest.mark.asyncio

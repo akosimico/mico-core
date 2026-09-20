@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +25,9 @@ PC_TOOL_PERMISSIONS = {
     "search_files": AUTO_EXECUTE,
     "check_git_status": AUTO_EXECUTE,
     "run_command": CONFIRM_REQUIRED,
+    "run_python_file": CONFIRM_REQUIRED,
+    "write_file": CONFIRM_REQUIRED,
+    "write_and_run_python_file": CONFIRM_REQUIRED,
     "delete_file": CONFIRM_REQUIRED,
     "git_push": CONFIRM_REQUIRED,
     "git_reset": CONFIRM_REQUIRED,
@@ -121,6 +125,23 @@ class PCActionService:
     async def request_confirmation(self, user_id: str, action: str, arguments: dict[str, Any]) -> str:
         if permission_level(action) != CONFIRM_REQUIRED:
             raise ValueError("Only confirmation-required actions may be queued.")
+        if action in {"write_file", "write_and_run_python_file"}:
+            target = self._path(str(arguments.get("path", "")))
+            content = arguments.get("content")
+            if not target.name or target.exists() and not target.is_file():
+                raise ValueError("The target must be a file inside the configured PC workspace.")
+            if action == "write_and_run_python_file" and target.suffix.lower() != ".py":
+                raise ValueError("Only a Python (.py) file can be written and run.")
+            if not target.parent.is_dir():
+                raise ValueError("The target folder does not exist inside the configured PC workspace.")
+            if not isinstance(content, str):
+                raise ValueError("File content must be text.")
+            if len(content.encode("utf-8")) > 200_000:
+                raise ValueError("File content is limited to 200 KB.")
+        if action == "run_python_file":
+            target = self._path(str(arguments.get("path", "")))
+            if target.suffix.lower() != ".py" or not target.is_file():
+                raise ValueError("Only an existing Python (.py) file inside the configured PC workspace can be run.")
         if action == "delete_file":
             target = self._path(str(arguments.get("path", "")))
             if not target.is_file():
@@ -162,6 +183,59 @@ class PCActionService:
             return True
 
     async def _execute_confirmed(self, user_id: str, action: str, args: dict[str, Any]) -> str:
+        if action == "write_and_run_python_file":
+            target = self._path(args["path"])
+            content = args.get("content")
+            if target.suffix.lower() != ".py" or target.exists() and not target.is_file():
+                raise ValueError("The target must be a Python file inside the workspace.")
+            if not target.parent.is_dir() or not isinstance(content, str):
+                raise ValueError("The target folder must exist and file content must be text.")
+            if len(content.encode("utf-8")) > 200_000:
+                raise ValueError("File content is limited to 200 KB.")
+            await asyncio.to_thread(target.write_text, content, encoding="utf-8")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, str(target)],
+                cwd=str(self.workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            output = (result.stdout + result.stderr).strip()[:50_000]
+            if result.returncode == 0:
+                return output or f"Updated and ran `{target.relative_to(self.workspace_root).as_posix()}` successfully (no output)."
+            return f"Updated `{target.relative_to(self.workspace_root).as_posix()}`, then it exited with code {result.returncode}.\n{output or 'No output.'}"
+        if action == "run_python_file":
+            target = self._path(args["path"])
+            if target.suffix.lower() != ".py" or not target.is_file():
+                raise ValueError("Only an existing Python (.py) file inside the workspace may be run.")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, str(target)],
+                cwd=str(self.workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            output = (result.stdout + result.stderr).strip()[:50_000]
+            if result.returncode == 0:
+                return output or f"`{target.relative_to(self.workspace_root).as_posix()}` finished successfully (no output)."
+            return f"`{target.relative_to(self.workspace_root).as_posix()}` exited with code {result.returncode}.\n{output or 'No output.'}"
+        if action == "write_file":
+            target = self._path(args["path"])
+            content = args.get("content")
+            if not target.name or target.exists() and not target.is_file():
+                raise ValueError("The target must be a file inside the workspace.")
+            if not target.parent.is_dir():
+                raise ValueError("The target folder does not exist inside the workspace.")
+            if not isinstance(content, str):
+                raise ValueError("File content must be text.")
+            if len(content.encode("utf-8")) > 200_000:
+                raise ValueError("File content is limited to 200 KB.")
+            existed = target.exists()
+            await asyncio.to_thread(target.write_text, content, encoding="utf-8")
+            verb = "Updated" if existed else "Created"
+            return f"{verb} `{target.relative_to(self.workspace_root).as_posix()}`."
         if action == "delete_file":
             target = self._path(args["path"])
             if not target.is_file():
@@ -201,6 +275,9 @@ def build_pc_tools(service: PCActionService) -> list[Tool]:
         tool("search_files", "Search file names inside the configured workspace.", {**user, "query": {"type": "string"}, "path": {"type": "string"}}, ["user_id", "query"], service.search_files),
         tool("check_git_status", "Read the git status of a project in the configured workspace.", {**user, "path": {"type": "string"}}, ["user_id"], service.check_git_status),
         tool("run_command", "Queue a shell command; it never runs until the user confirms it in Discord.", {**user, "command": {"type": "string"}}, ["user_id", "command"], lambda user_id, command: service.request_confirmation(user_id, "run_command", {"command": command})),
+        tool("run_python_file", "Queue execution of one existing Python (.py) file inside the workspace and return its output after confirmation. Use this when the user asks to run a Python file, for example 'run test/calc.py'.", {**user, "path": {"type": "string", "description": "Workspace-relative path to an existing .py file."}}, ["user_id", "path"], lambda user_id, path: service.request_confirmation(user_id, "run_python_file", {"path": path})),
+        tool("write_file", "Queue creation or replacement of a UTF-8 text file inside the workspace. Use this when the user asks you to write code or other content into a named file. It never writes until the user confirms it in Discord.", {**user, "path": {"type": "string", "description": "Workspace-relative file path; its parent folder must already exist."}, "content": {"type": "string", "description": "Complete UTF-8 text to write to the file."}}, ["user_id", "path", "content"], lambda user_id, path, content: service.request_confirmation(user_id, "write_file", {"path": path, "content": content})),
+        tool("write_and_run_python_file", "Queue replacement of a Python file followed by running that exact new content, returning its output after one confirmation. Use this when the user asks to rewrite or write a Python file and run it in the same request.", {**user, "path": {"type": "string", "description": "Workspace-relative .py file path; its parent folder must already exist."}, "content": {"type": "string", "description": "Complete Python source code to write, then run."}}, ["user_id", "path", "content"], lambda user_id, path, content: service.request_confirmation(user_id, "write_and_run_python_file", {"path": path, "content": content})),
         tool("delete_file", "Queue deletion of one workspace file; requires Discord confirmation.", {**user, "path": {"type": "string"}}, ["user_id", "path"], lambda user_id, path: service.request_confirmation(user_id, "delete_file", {"path": path})),
         tool("git_push", "Queue git push; requires Discord confirmation.", user, ["user_id"], lambda user_id: service.request_confirmation(user_id, "git_push", {})),
         tool("git_reset", "Queue git reset; requires Discord confirmation.", {**user, "mode": {"type": "string"}, "target": {"type": "string"}}, ["user_id"], lambda user_id, mode="--mixed", target="HEAD": service.request_confirmation(user_id, "git_reset", {"mode": mode, "target": target})),

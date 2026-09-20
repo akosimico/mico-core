@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from openai import BadRequestError, InternalServerError, RateLimitError
+from openai import BadRequestError, InternalServerError, NotFoundError, RateLimitError
 
 from app.ai.provider import Message, OpenAICompatibleProvider
 from app.tools.base import ToolRegistry
@@ -24,6 +24,11 @@ def make_rate_limit_error() -> RateLimitError:
 def make_bad_request_error() -> BadRequestError:
     resp = httpx.Response(400, request=_FAKE_REQUEST, json={"error": {"message": "bad request"}})
     return BadRequestError("bad request", response=resp, body=None)
+
+
+def make_model_not_found_error() -> NotFoundError:
+    resp = httpx.Response(404, request=_FAKE_REQUEST, json={"error": {"message": "model not found"}})
+    return NotFoundError("model not found", response=resp, body=None)
 
 
 def make_completion_response(text: str) -> MagicMock:
@@ -71,6 +76,18 @@ async def test_falls_back_on_server_error():
 async def test_falls_back_on_rate_limit():
     provider, fake_client = build_provider_with_fake_client(
         [make_rate_limit_error(), make_completion_response("hi from model-b")]
+    )
+
+    reply = await provider.generate([Message(role="user", content="hello")], "system prompt")
+
+    assert reply == "hi from model-b"
+    assert fake_client.chat.completions.create.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_falls_back_when_primary_model_is_not_found():
+    provider, fake_client = build_provider_with_fake_client(
+        [make_model_not_found_error(), make_completion_response("hi from model-b")]
     )
 
     reply = await provider.generate([Message(role="user", content="hello")], "system prompt")

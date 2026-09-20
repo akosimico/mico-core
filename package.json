@@ -1,4 +1,6 @@
 {
+  "name": "mico-core",
+  "private": true,
   "dependencies": {
     "lucide-react": "^1.47.0"
   }

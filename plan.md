@@ -6,7 +6,7 @@
 
 ## What this is
 
-MICO is a JARVIS-inspired personal AI agent, accessible through Discord, that can
+MICO is a personal AI automation agent, accessible through Discord, that can
 understand natural language, remember context, call tools, automate tasks,
 monitor services, and (eventually) act on your PC and respond to voice.
 
@@ -51,7 +51,7 @@ database, Discord client.
 
 ## Golden rule
 
-**Don't start with the JARVIS UI. Start with the agent architecture.**
+**Don't start with the assistant UI. Start with the agent architecture.**
 
 First real milestone target:
 

@@ -277,7 +277,7 @@ def build_github_tools(client: GitHubClient) -> list[Tool]:
                 "properties": {
                     "repo": {
                         "type": "string",
-                        "description": "Repository in 'owner/repo' format (e.g. 'akosimico/mico-jarvis').",
+                        "description": "Repository in 'owner/repo' format (e.g. 'akosimico/mico-core').",
                     },
                     "limit": {
                         "type": "integer",
@@ -296,7 +296,7 @@ def build_github_tools(client: GitHubClient) -> list[Tool]:
                 "properties": {
                     "repo": {
                         "type": "string",
-                        "description": "Repository in 'owner/repo' format (e.g. 'akosimico/mico-jarvis').",
+                        "description": "Repository in 'owner/repo' format (e.g. 'akosimico/mico-core').",
                     },
                     "state": {
                         "type": "string",

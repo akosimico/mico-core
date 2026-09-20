@@ -290,7 +290,9 @@ class OpenAICompatibleProvider(AIProvider):
                 return response.choices[0].message.content or ""
 
             except APIStatusError as exc:
-                if exc.status_code >= 500 or exc.status_code == 429:
+                # A missing/revoked model is model-specific, so the next
+                # configured model may still serve this request.
+                if exc.status_code >= 500 or exc.status_code in {404, 429}:
                     logger.warning(
                         "%s model %r unavailable (%s) — trying next in chain",
                         self._provider_label,
@@ -369,7 +371,7 @@ class OpenAICompatibleProvider(AIProvider):
                 return final_res.choices[0].message.content or ("\n\n".join(last_tool_outputs) if last_tool_outputs else "")
 
             except APIStatusError as exc:
-                if exc.status_code >= 500 or exc.status_code == 429:
+                if exc.status_code >= 500 or exc.status_code in {404, 429}:
                     logger.warning(
                         "%s model %r unavailable (%s) — trying next in chain",
                         self._provider_label,

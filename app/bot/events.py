@@ -131,7 +131,7 @@ def register_events(bot: commands.Bot) -> None:
             "  - *\"Calculate 12 * 45 + sqrt(144)\"*\n"
             "  - *\"Remind me tomorrow at 10am to update portfolio\"*\n"
             "  - *\"Add write unit tests to my tasks\"* or *\"What are my tasks?\"*\n"
-            "  - *\"Show the latest commits on akosimico/mico-jarvis\"*\n\n"
+            "  - *\"Show the latest commits on akosimico/mico-core\"*\n\n"
             "**Memory Commands:**\n"
             f"• `{p}remember <fact>` — Store a fact in long-term memory.\n"
             f"• `{p}memories` — List all your saved memories.\n"
@@ -518,7 +518,7 @@ def register_events(bot: commands.Bot) -> None:
                 await ctx.reply(
                     f"⚠️ **Missing repository name.**\n"
                     f"**Usage:** `{prefix}{cmd_name} <owner/repo>`\n"
-                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-jarvis`"
+                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-core`"
                 )
             else:
                 await ctx.reply(
@@ -536,7 +536,7 @@ def register_events(bot: commands.Bot) -> None:
             elif cmd_name in ("commits", "issues"):
                 await ctx.reply(
                     f"⚠️ **Invalid limit argument.** The limit must be a number.\n"
-                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-jarvis 5`"
+                    f"**Example:** `{prefix}{cmd_name} akosimico/mico-core 5`"
                 )
             else:
                 await ctx.reply(

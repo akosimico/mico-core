@@ -1,111 +1,160 @@
-# MICO — Complete Build (Milestones 1–8 + Dashboard + Production Scaffolding)
+# Mico Core
 
-Personal AI agent accessible through Discord and REST API, featuring multi-turn conversation memory, swappable AI providers, and function/tool calling (system utilities, task & reminder tracking, and GitHub integration).
+Mico Core is a self-hosted personal AI automation assistant for Discord. It combines natural conversation, tool calling, memory, reminders, GitHub workflows, voice, and a lightweight dashboard in one project you can run with your own credentials.
 
-## Features
+Built for developers who want a capable assistant without handing control of their workflows, data, or provider accounts to a hosted bot.
 
-- **FastAPI Backend + Discord Bot**: Runs both concurrently in the same async event loop.
-- **Provider Abstraction with Tool Calling**: Seamless tool execution across Gemini, Groq, OpenAI, and OpenRouter without modifying agent or bot logic.
-- **10 Core Tools Built-in**:
-  1. `get_time(timezone_name)` — Timezone and local time lookup.
-  2. `calculator(expression)` — AST-safe arithmetic and math expressions.
-  3. `create_reminder(user_id, content, remind_at, channel_id)` — Relative and absolute reminder scheduler.
-  4. `list_reminders(user_id, include_completed)` — Query active or completed reminders.
-  5. `create_task(user_id, title, description, due_date)` — Add tasks to persistent to-do list.
-  6. `list_tasks(user_id, status)` — Filter and display tasks.
-  7. `complete_task(user_id, task_id)` — Mark tasks as completed.
-  8. `github_get_repositories(username)` — List recent GitHub repositories.
-  9. `github_get_commits(repo, limit)` — View latest git commits on a repository.
-  10. `github_get_issues(repo, state, limit)` — View issues on a repository.
-- **Natural AI Tool Calling**: Ask natural questions like *"What time is it in Tokyo?"*, *"Calculate 25 * 4 + 10"*, or *"Add update README to my tasks"*, and MICO automatically invokes the right tools and incorporates results into its response.
-- **Persistent Memory**: Short-term conversation history and long-term user facts and project preferences (`!remember`, `!memories`, `!forget`).
-- **Automation Engine**: A lifecycle-managed background worker delivers reminders, daily task summaries, and weekly GitHub development reports to Discord, with DM fallback.
-- **Developer Assistant**: Project-aware task management, GitHub queries for today's commits and stale repositories, and signed GitHub webhook notifications relayed to Discord.
-- **Service Monitoring**: Configurable HTTP health checks with Discord alerts on failures and recovery notifications that include downtime.
-- **PC Agent**: Workspace-confined file, search, project, and Git-status actions, plus explicit Discord confirmation for commands, deletion, Git writes, and deployment.
-- **Voice**: Discord audio-attachment transcription, agent routing, and MP3 text-to-speech replies through OpenAI Audio.
-- **Dashboard**: React + Tailwind dashboard for task counts, reminders, automations, service health, and recent audited activity.
-- **Production Scaffolding**: Docker Compose, separate API/Discord-worker containers, CI, operations runbook, and demo script.
-- **Database Engine**: SQLAlchemy 2.0 async engine supporting PostgreSQL (`asyncpg`) in production and SQLite (`aiosqlite`) fallback for local development and testing.
+## What it does
 
-## Setup
+- Chat naturally in Discord DMs or by mentioning the bot in a server.
+- Use Gemini, Groq, OpenAI, or OpenRouter through one provider abstraction.
+- Create tasks and reminders, remember useful facts, and schedule daily or weekly summaries.
+- Query GitHub repositories, commits, and issues; optionally receive signed webhook notifications.
+- Monitor HTTP services and receive outage and recovery alerts.
+- Transcribe Discord audio and return text-to-speech responses with OpenAI Audio.
+- Work with a confirmation-gated local PC agent for workspace files, Git status, commands, and deployments.
+- View tasks, reminders, automations, service health, and activity in the React dashboard.
 
-1. **Create a Discord bot:**
-   - Go to the [Discord Developer Portal](https://discord.com/developers/applications) → New Application → Bot.
-   - Under "Privileged Gateway Intents", enable **Message Content Intent**.
-   - Copy the bot token.
-   - Under OAuth2 → URL Generator, check `bot`, and permissions `Send Messages` + `Read Message History`. Use the generated URL to invite the bot to your server.
+## Architecture
 
-2. **Get an AI API key:**
-   - Gemini: [Google AI Studio](https://aistudio.google.com/)
-   - Or Groq / OpenAI / OpenRouter.
+Mico Core runs a FastAPI API and Discord bot on the same async foundation. SQLAlchemy supports SQLite for local development and PostgreSQL for Docker or production. The React/Tailwind dashboard consumes the API, while a background worker handles reminders, summaries, monitoring, and GitHub notifications.
 
-3. **Install dependencies:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+## Quick start
 
-4. **Configure:**
-   ```bash
-   cp .env.example .env
-   # Edit .env: DISCORD_TOKEN, GEMINI_API_KEY / GROQ_API_KEY, DATABASE_URL, etc.
-   ```
+### Prerequisites
 
-5. **Run:**
-   ```bash
-   python -m app.main
-   ```
-   FastAPI server will be available at `http://127.0.0.1:8000` (interactive Swagger UI docs at `http://127.0.0.1:8000/docs`), and the Discord bot will connect in the background.
+- Python 3.11 or newer
+- A Discord application and bot token
+- An API key for one supported AI provider (Gemini is the default)
+- Node.js 20+ only if you want to run or build the dashboard
 
-## Using it
-
-- **DM the bot** — replies to every message.
-- **In a server channel** — `@MICO <your message>` to interact.
-- **Natural Tool Invocations** — e.g. *"What are my tasks?"*, *"What time is it in Manila?"*, *"Show recent commits on akosimico/mico-jarvis"*.
-- **Quick Commands**:
-  - `!time [timezone]` — Check current time.
-  - `!calc <expression>` — Quick calculator.
-  - `!remind <time> to <what>` — Schedule a reminder.
-  - `!reminders` — List active reminders.
-  - `!task <title>` — Add a task.
-  - `!tasks [status]` — List tasks.
-  - `!taskdone <id>` — Mark a task completed.
-  - `!automation daily on [HH:MM]` — Enable a daily task summary (default: 08:00).
-  - `!automation weekly on [DAY] [HH:MM]` — Enable a weekly development report (default: Monday 09:00).
-  - `!automation <daily|weekly> off` — Disable a recurring automation.
-  - `!automations` — List configured automation schedules.
-  - `!monitor add <name> <https://url> [seconds]` — Monitor a service endpoint.
-  - `!monitor remove <id>` — Stop monitoring a service.
-  - `!monitors` — Show monitored services and their latest health state.
-  - `!confirm <code>` — Execute a pending modifying PC action.
-  - `!cancel <code>` — Cancel a pending PC action.
-  - `!repos [user]` — List GitHub repositories.
-  - `!commits <owner/repo>` — View recent commits.
-  - `!issues <owner/repo>` — View open issues.
-  - `!remember <fact>` — Store long-term memory.
-  - `!memories` — List saved memories.
-  - `!forget <id>` — Delete memory.
-  - `!reset` — Clear conversation history for channel.
-  - `!help` — Display comprehensive command guide.
-- **REST API**:
-  - `POST /api/chat` — Chat with MICO (natural tool calling enabled).
-  - `GET /api/tools` & `POST /api/tools/execute` — Introspect and execute tools.
-  - `GET/POST /api/tasks`, `PATCH /api/tasks/{id}/complete` — Manage tasks.
-  - `GET/POST /api/reminders` — Manage reminders.
-  - `GET/POST/DELETE /api/memories` — Memory CRUD endpoints.
-  - `POST /api/voice/transcribe` — Transcribe a raw audio request body.
-  - `POST /api/voice/reply` — Transcribe raw audio and route it through MICO's agent pipeline.
-  - `POST /api/voice/synthesize` — Return MP3 audio for a raw UTF-8 text request body.
-
-## Running tests
+### 1. Clone and install
 
 ```bash
-pytest
+git clone https://github.com/akosimico/mico-core.git
+cd mico-core
+
+python -m venv venv
+# macOS/Linux
+source venv/bin/activate
+# Windows PowerShell
+# .\\venv\\Scripts\\Activate.ps1
+
+pip install -r requirements.txt
 ```
 
-To build the dashboard:
+### 2. Create your local configuration
+
+```bash
+# macOS/Linux
+cp .env.example .env
+# Windows PowerShell
+# Copy-Item .env.example .env
+```
+
+Open `.env` and set your Discord bot token and one provider key. For the default Gemini setup, the minimum is:
+
+```dotenv
+DISCORD_TOKEN=your-discord-bot-token
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+The included configuration uses SQLite (`mico.db`) locally, so no database service is needed for this path.
+
+### 3. Create and invite a Discord bot
+
+1. In the [Discord Developer Portal](https://discord.com/developers/applications), create an application and add a bot.
+2. Under **Bot**, enable **Message Content Intent** in Privileged Gateway Intents.
+3. Copy the bot token into `DISCORD_TOKEN` in your `.env` file.
+4. Under **OAuth2 → URL Generator**, select the `bot` scope and grant at least **Send Messages** and **Read Message History**. Open the generated URL to invite the bot to your server.
+
+### 4. Run Mico Core
+
+```bash
+python -m app.main
+```
+
+The API is available at [http://127.0.0.1:8000](http://127.0.0.1:8000), with interactive API documentation at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). Send the bot a DM, or mention it in a server with `@MICO <message>`.
+
+## Configuration
+
+Copy `.env.example` to `.env`; it documents every supported setting. Do not commit `.env`—it is already ignored by Git.
+
+| Goal | Required settings |
+| --- | --- |
+| Default Gemini bot | `DISCORD_TOKEN`, `GEMINI_API_KEY` |
+| Groq bot | `DISCORD_TOKEN`, `AI_PROVIDER=groq`, `GROQ_API_KEY` |
+| OpenAI bot | `DISCORD_TOKEN`, `AI_PROVIDER=openai`, `OPENAI_API_KEY` |
+| OpenRouter bot | `DISCORD_TOKEN`, `AI_PROVIDER=openrouter`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
+| API-only mode | `ENABLE_BOT=false` plus an AI provider key |
+| Voice replies | `VOICE_ENABLED=true`, `OPENAI_API_KEY` |
+| Docker/PostgreSQL | `POSTGRES_PASSWORD` and `docker compose up --build` |
+
+`GITHUB_TOKEN`, webhook settings, monitoring, automation schedules, and PC-agent settings are optional. See the comments in `.env.example` before enabling them.
+
+## Using the bot
+
+Mico Core chooses tools from natural language. For example:
+
+- “What time is it in Manila?”
+- “Remind me tomorrow at 9 AM to review the pull request.”
+- “Add write integration tests to my tasks.”
+- “Show the latest commits on akosimico/mico-core.”
+
+You can also use fast command shortcuts:
+
+| Command | Description |
+| --- | --- |
+| `!time [timezone]` | Show the current time in a timezone. |
+| `!calc <expression>` | Calculate a safe arithmetic expression. |
+| `!remind <time> to <what>` | Create a reminder. |
+| `!reminders` | List reminders. |
+| `!task <title>` / `!tasks [status]` / `!taskdone <id>` | Manage tasks. |
+| `!remember <fact>` / `!memories` / `!forget <id>` | Manage long-term memory. |
+| `!repos [user]` / `!commits <owner/repo>` / `!issues <owner/repo>` | Query GitHub. |
+| `!automation ...` / `!automations` | Manage daily and weekly summaries. |
+| `!monitor add|remove|list` | Manage HTTP service monitoring. |
+| `!confirm <code>` / `!cancel <code>` | Approve or cancel a queued PC-agent action. |
+| `!help` | Show the complete Discord command guide. |
+
+## API and dashboard
+
+The REST API supports chat, tool inspection/execution, tasks, reminders, memories, voice, GitHub webhooks, and dashboard data. Explore the complete schema at `/docs` after starting the API.
+
+To run the dashboard locally:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+For the full stack with PostgreSQL, separate API/worker containers, and the dashboard:
+
+```bash
+# Set POSTGRES_PASSWORD in .env first
+docker compose up --build
+```
+
+The dashboard will be available at [http://localhost:3000](http://localhost:3000).
+
+## Security notes
+
+- Keep API keys and Discord tokens only in `.env`; never commit or share that file.
+- The local PC agent is restricted to `PC_WORKSPACE_ROOT`. Writing files, deleting files, commands, Git writes, and deployments require an explicit Discord confirmation code.
+- Use a dedicated Discord server and least-privilege provider and GitHub tokens when testing integrations.
+- Validate and configure `GITHUB_WEBHOOK_SECRET` before exposing the webhook endpoint publicly.
+
+## Development
+
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+Build the dashboard:
 
 ```bash
 cd frontend
@@ -113,12 +162,12 @@ npm ci
 npm run build
 ```
 
-## What's next
+Additional operational details and a demo flow are available in [docs/operations.md](docs/operations.md) and [docs/demo-script.md](docs/demo-script.md).
 
-Configure GitHub webhooks with `GITHUB_WEBHOOK_SECRET` and `GITHUB_WEBHOOK_CHANNEL_ID`, then point GitHub at `POST /api/webhooks/github`. MICO validates `X-Hub-Signature-256` before posting push, issue, and pull-request events to Discord.
+## Contributing
 
-Set `OPENAI_API_KEY` and leave `VOICE_ENABLED=true` to enable audio. In Discord, send an audio attachment in a DM or mention MICO with it in a server; MICO transcribes it, runs the normal agent flow, and returns text plus `mico-response.mp3`.
+Fork the repository, create a focused branch, add or update tests for behavioral changes, and open a pull request with a concise description of the problem and solution. Please keep secrets, local databases, and generated build output out of commits.
 
-Set `PC_WORKSPACE_ROOT` to the only directory MICO may access. Optionally allow safe app launches with `PC_ALLOWED_APPLICATIONS=code,notepad`. Modifying actions always require a user-specific `!confirm` code and are written to the audit log.
+## License
 
-See [plan.md](plan.md) for completed milestones and upcoming work.
+Mico Core is available under the [MIT License](LICENSE). Created by Mico Helis.
