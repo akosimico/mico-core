@@ -9,9 +9,11 @@ import {
   CheckCircle2,
   Clock,
   Inbox,
+  LayoutDashboard,
   ListChecks,
   RefreshCw,
   Server,
+  ShieldCheck,
   type LucideIcon,
   User,
   Zap,
@@ -92,19 +94,43 @@ function App() {
       <div className="glow glow-a" aria-hidden="true" />
       <div className="glow glow-b" aria-hidden="true" />
 
+      <aside className="dashboard-sidebar" aria-label="Dashboard navigation">
+        <div className="brand-lockup">
+          <div className="brand-mark"><img src="/mico-core-logo.png" alt="MICO-CORE logo" /></div>
+          <div>
+            <strong>MICO-CORE</strong>
+            <span>Personal command center</span>
+          </div>
+        </div>
+
+        <nav className="side-nav">
+          <a className="active" href="#overview"><LayoutDashboard size={17} /> Overview</a>
+          <a href="#services"><Server size={17} /> Services</a>
+          <a href="#activity"><Clock size={17} /> Activity</a>
+        </nav>
+
+        <div className="safety-card">
+          <ShieldCheck size={18} />
+          <div>
+            <strong>Safety first</strong>
+            <p>Local PC actions always need your confirmation.</p>
+          </div>
+        </div>
+      </aside>
+
       <section className="dashboard-shell">
-        <header className="hero">
+        <header className="topbar">
           <div className="hero-copy">
             <p className="eyebrow">
               <Activity size={13} strokeWidth={2.5} />
-              Mico-core
+              Your workspace
             </p>
             <h1>Command center</h1>
-            <p className="subtitle">A focused view of your Discord assistant's work.</p>
+            <p className="subtitle">Keep your assistant's work, automations, and services in view.</p>
           </div>
 
           <form
-            className="user-form"
+            className="user-form workspace-picker"
             onSubmit={(event) => {
               event.preventDefault();
               const id = userId.trim();
@@ -140,18 +166,23 @@ function App() {
           </form>
         </header>
 
-        <div className="info-strip">
-          <div className="info-strip-text">
-            <strong>How it works</strong>
-            <p>{lastUpdated ? `Live updates every 5 seconds · Last synced ${lastUpdated.toLocaleTimeString()}` : "Use the same Discord user ID that sends MICO commands."}</p>
+        <section className="overview-card" id="overview">
+          <div className="overview-copy">
+            <p className="eyebrow"><Zap size={13} strokeWidth={2.5} /> Workspace overview</p>
+            <h2>{data ? "Everything is in one place." : "Connect your Discord workspace."}</h2>
+            <p>
+              {data
+                ? "Track what Mico Core is handling right now, from reminders to secure local actions."
+                : "Paste the Discord user ID you use with Mico Core to load your personal activity and service health."}
+            </p>
           </div>
-          {data && (
-            <button className="ghost-button" onClick={() => void load()} disabled={loading}>
-              <RefreshCw size={14} className={loading ? "spin" : ""} />
-              Refresh data
-            </button>
-          )}
-        </div>
+          <div className="overview-meta">
+            <span className={data ? "live-pill connected" : "live-pill"}>
+              <span /> {data ? "Workspace connected" : "Waiting for workspace"}
+            </span>
+            <p>{lastUpdated ? `Updates every 5 seconds · Synced ${lastUpdated.toLocaleTimeString()}` : "Your Discord user ID stays in this browser."}</p>
+          </div>
+        </section>
 
         {error && (
           <section className="error-panel">
@@ -178,7 +209,7 @@ function App() {
 
         {data && (
           <>
-            <section className="metric-grid">
+            <section className="metric-grid" aria-label="Workspace metrics">
               {cards.map(({ icon: Icon, label, value, detail }, index) => (
                 <article
                   key={label}
@@ -197,6 +228,7 @@ function App() {
 
             <section className="content-grid">
               <Panel
+                id="services"
                 title="Service health"
                 label="Live status"
                 count={`${healthyCount}/${data.monitors.length} healthy`}
@@ -234,6 +266,7 @@ function App() {
               </Panel>
 
               <Panel
+                id="activity"
                 title="Recent PC activity"
                 label="Secure actions"
                 count={`${data.recent_activity.length} events`}
@@ -275,12 +308,14 @@ function App() {
 }
 
 function Panel({
+  id,
   title,
   label,
   count,
   icon: Icon,
   children,
 }: {
+  id?: string;
   title: string;
   label: string;
   count: string;
@@ -288,7 +323,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <article className="panel">
+    <article className="panel" id={id}>
       <header>
         <div className="panel-title">
           <div className="panel-icon">
