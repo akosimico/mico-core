@@ -99,6 +99,12 @@ Mico Core chooses tools from natural language. For example:
 - “Remind me tomorrow at 9 AM to review the pull request.”
 - “Add write integration tests to my tasks.”
 - “Show the latest commits on akosimico/mico-core.”
+- “Open the `frontend` folder.”
+- “Create a new `notes.md` file.”
+- “Add a function to `app/main.py`.”
+- “Run the test suite.”
+
+When the local PC agent is enabled, you can ask the bot to open folders, create or edit files, add code, and run commands. Actions that write to files or run commands are queued for your explicit confirmation.
 
 You can also use fast command shortcuts:
 
