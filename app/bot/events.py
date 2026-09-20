@@ -12,7 +12,15 @@ from app.automation.workers import DAILY_SUMMARY, WEEKLY_DEVELOPMENT_REPORT
 logger = logging.getLogger("mico.bot.events")
 
 DISCORD_MESSAGE_LIMIT = 2000
-WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 
 
 def _parse_time(value: str) -> tuple[int, int]:
@@ -30,7 +38,9 @@ def register_events(bot: commands.Bot) -> None:
     async def on_ready():
         db = getattr(bot, "mico_database", None)
         if db is not None and not await db.acquire_bot_lease():
-            logger.error("Another MICO Discord worker already owns the database lease; closing this duplicate worker.")
+            logger.error(
+                "Another MICO Discord worker already owns the database lease; closing this duplicate worker."
+            )
             bot.mico_is_active = False  # type: ignore[attr-defined]
             await bot.close()
             return
@@ -61,25 +71,39 @@ def register_events(bot: commands.Bot) -> None:
 
         content = message.content
         if bot.user:
-            content = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+            content = (
+                content.replace(f"<@{bot.user.id}>", "")
+                .replace(f"<@!{bot.user.id}>", "")
+                .strip()
+            )
 
         voice_attachment = next(
-            (attachment for attachment in message.attachments if (attachment.content_type or "").startswith("audio/")),
+            (
+                attachment
+                for attachment in message.attachments
+                if (attachment.content_type or "").startswith("audio/")
+            ),
             None,
         )
         is_voice_turn = voice_attachment is not None
         if is_voice_turn:
             voice_service = getattr(bot, "voice_service", None)
             if voice_service is None or not voice_service.enabled:
-                await message.reply("Voice input is not configured. Set `OPENAI_API_KEY` to enable it.")
+                await message.reply(
+                    "Voice input is not configured. Set `OPENAI_API_KEY` to enable it."
+                )
                 return
             try:
                 content = await voice_service.transcribe(
-                    await voice_attachment.read(), voice_attachment.filename, voice_attachment.content_type or "audio/ogg"
+                    await voice_attachment.read(),
+                    voice_attachment.filename,
+                    voice_attachment.content_type or "audio/ogg",
                 )
             except Exception:
                 logger.exception("Could not transcribe Discord voice attachment")
-                await message.reply("I couldn't transcribe that audio message. Please try a shorter recording.")
+                await message.reply(
+                    "I couldn't transcribe that audio message. Please try a shorter recording."
+                )
                 return
 
         if not content:
@@ -99,7 +123,9 @@ def register_events(bot: commands.Bot) -> None:
                     server_id=server_id,
                 )
             except Exception:
-                logger.exception("Failed to handle message in channel %s", conversation_id)
+                logger.exception(
+                    "Failed to handle message in channel %s", conversation_id
+                )
                 await message.reply(
                     "Something went wrong talking to the model — check the bot's logs. Try again in a moment."
                 )
@@ -109,7 +135,9 @@ def register_events(bot: commands.Bot) -> None:
         if is_voice_turn:
             try:
                 audio = await bot.voice_service.synthesize(reply)  # type: ignore[attr-defined]
-                await message.channel.send(file=discord.File(BytesIO(audio), filename="mico-response.mp3"))
+                await message.channel.send(
+                    file=discord.File(BytesIO(audio), filename="mico-response.mp3")
+                )
             except Exception:
                 logger.exception("Could not synthesize voice response")
 
@@ -126,12 +154,7 @@ def register_events(bot: commands.Bot) -> None:
             "**Chatting with MICO (AI with Tool Calling):**\n"
             "• In DMs: send any message directly.\n"
             "• In server channels: `@MICO <your message>`\n"
-            "• Natural tool calling: MICO automatically executes tools when you ask questions like:\n"
-            "  - *\"What time is it in Tokyo?\"*\n"
-            "  - *\"Calculate 12 * 45 + sqrt(144)\"*\n"
-            "  - *\"Remind me tomorrow at 10am to update portfolio\"*\n"
-            "  - *\"Add write unit tests to my tasks\"* or *\"What are my tasks?\"*\n"
-            "  - *\"Show the latest commits on akosimico/mico-core\"*\n\n"
+            "• Natural tool calling: Ask MICO to check time, calculate, manage reminders/tasks, query GitHub, manage files/code, or run tests.\n\n"
             "**Memory Commands:**\n"
             f"• `{p}remember <fact>` — Store a fact in long-term memory.\n"
             f"• `{p}memories` — List all your saved memories.\n"
@@ -241,7 +264,9 @@ def register_events(bot: commands.Bot) -> None:
         # Split on " to " or " | "
         parts = re.split(r"\s+(?:to|\|\s*)\s*", args, maxsplit=1)
         if len(parts) < 2:
-            await ctx.reply("⚠️ Format: `!remind <time> to <what>`\n*Example:* `!remind in 20 minutes to check email`")
+            await ctx.reply(
+                "⚠️ Format: `!remind <time> to <what>`\n*Example:* `!remind in 20 minutes to check email`"
+            )
             return
         remind_at, content = parts[0].strip(), parts[1].strip()
 
@@ -276,7 +301,9 @@ def register_events(bot: commands.Bot) -> None:
         agent = bot.mico_agent  # type: ignore[attr-defined]
         registry = agent.tool_registry
         if registry:
-            res = await registry.execute("create_task", user_id=str(ctx.author.id), title=title)
+            res = await registry.execute(
+                "create_task", user_id=str(ctx.author.id), title=title
+            )
             await ctx.reply(res)
         else:
             await ctx.reply("Tool execution is not enabled.")
@@ -287,7 +314,9 @@ def register_events(bot: commands.Bot) -> None:
         agent = bot.mico_agent  # type: ignore[attr-defined]
         registry = agent.tool_registry
         if registry:
-            res = await registry.execute("list_tasks", user_id=str(ctx.author.id), status=status)
+            res = await registry.execute(
+                "list_tasks", user_id=str(ctx.author.id), status=status
+            )
             await ctx.reply(res)
         else:
             await ctx.reply("Tool execution is not enabled.")
@@ -298,25 +327,37 @@ def register_events(bot: commands.Bot) -> None:
         agent = bot.mico_agent  # type: ignore[attr-defined]
         registry = agent.tool_registry
         if registry:
-            res = await registry.execute("complete_task", user_id=str(ctx.author.id), task_id=task_id)
+            res = await registry.execute(
+                "complete_task", user_id=str(ctx.author.id), task_id=task_id
+            )
             await ctx.reply(res)
         else:
             await ctx.reply("Tool execution is not enabled.")
 
     @bot.command(name="automation")
-    async def automation_command(ctx: commands.Context, kind: str, action: str, *options: str):
+    async def automation_command(
+        ctx: commands.Context, kind: str, action: str, *options: str
+    ):
         """Configure daily summaries or weekly development reports."""
         service = getattr(bot, "automation_service", None)
         if service is None:
             await ctx.reply("Automation persistence is not enabled.")
             return
         kind, action = kind.lower(), action.lower()
-        task = DAILY_SUMMARY if kind == "daily" else WEEKLY_DEVELOPMENT_REPORT if kind == "weekly" else None
+        task = (
+            DAILY_SUMMARY
+            if kind == "daily"
+            else WEEKLY_DEVELOPMENT_REPORT if kind == "weekly" else None
+        )
         if task is None or action not in {"on", "off"}:
-            await ctx.reply("Usage: `!automation daily on [HH:MM]`, `!automation weekly on [DAY] [HH:MM]`, or `!automation <daily|weekly> off`")
+            await ctx.reply(
+                "Usage: `!automation daily on [HH:MM]`, `!automation weekly on [DAY] [HH:MM]`, or `!automation <daily|weekly> off`"
+            )
             return
         if action == "off":
-            await ctx.reply(f"{'✅ ' + kind.title() + ' automation disabled.' if await service.disable(str(ctx.author.id), task) else 'No ' + kind + ' automation is configured yet.'}")
+            await ctx.reply(
+                f"{'✅ ' + kind.title() + ' automation disabled.' if await service.disable(str(ctx.author.id), task) else 'No ' + kind + ' automation is configured yet.'}"
+            )
             return
         try:
             if kind == "daily":
@@ -328,7 +369,9 @@ def register_events(bot: commands.Bot) -> None:
                     raise ValueError("Day must be Monday through Sunday.")
                 hour, minute = _parse_time(options[1] if len(options) > 1 else "09:00")
                 schedule = f"{minute} {hour} * * {WEEKDAYS[day]}"
-            record = await service.enable(str(ctx.author.id), task, schedule, str(ctx.channel.id))
+            record = await service.enable(
+                str(ctx.author.id), task, schedule, str(ctx.channel.id)
+            )
             await ctx.reply(f"✅ {kind.title()} automation enabled for `{schedule}` ({bot.mico_settings.default_timezone}). Next run: <t:{int(record.next_run.timestamp())}:R>.")  # type: ignore[attr-defined]
         except ValueError as exc:
             await ctx.reply(f"⚠️ {exc}")
@@ -342,12 +385,20 @@ def register_events(bot: commands.Bot) -> None:
             return
         records = await service.list_for_user(str(ctx.author.id))
         if not records:
-            await ctx.reply("You have no configured automations. Use `!automation daily on` to get started.")
+            await ctx.reply(
+                "You have no configured automations. Use `!automation daily on` to get started."
+            )
             return
         lines = ["⚙️ **Your Automations:**"]
         for record in records:
-            label = "Daily summary" if record.task == DAILY_SUMMARY else "Weekly development report"
-            lines.append(f"• **{label}** — {'enabled' if record.enabled else 'disabled'}; `{record.schedule}`; next: <t:{int(record.next_run.timestamp())}:R>")
+            label = (
+                "Daily summary"
+                if record.task == DAILY_SUMMARY
+                else "Weekly development report"
+            )
+            lines.append(
+                f"• **{label}** — {'enabled' if record.enabled else 'disabled'}; `{record.schedule}`; next: <t:{int(record.next_run.timestamp())}:R>"
+            )
         await ctx.reply("\n".join(lines))
 
     @bot.command(name="monitor")
@@ -360,12 +411,18 @@ def register_events(bot: commands.Bot) -> None:
         action = action.lower()
         if action == "add":
             if len(args) < 2:
-                await ctx.reply("⚠️ Usage: `!monitor add <name> <https://url> [seconds]`")
+                await ctx.reply(
+                    "⚠️ Usage: `!monitor add <name> <https://url> [seconds]`"
+                )
                 return
             try:
                 interval = int(args[2]) if len(args) > 2 else 60
-                record = await service.add(str(ctx.author.id), str(ctx.channel.id), args[0], args[1], interval)
-                await ctx.reply(f"✅ Monitoring `{record.name}` every {record.interval_seconds}s: {record.url} (ID: `{record.id}`)")
+                record = await service.add(
+                    str(ctx.author.id), str(ctx.channel.id), args[0], args[1], interval
+                )
+                await ctx.reply(
+                    f"✅ Monitoring `{record.name}` every {record.interval_seconds}s: {record.url} (ID: `{record.id}`)"
+                )
             except (ValueError, TypeError) as exc:
                 await ctx.reply(f"⚠️ {exc}")
             return
@@ -373,9 +430,15 @@ def register_events(bot: commands.Bot) -> None:
             if not args or not args[0].isdigit():
                 await ctx.reply("⚠️ Usage: `!monitor remove <id>`")
                 return
-            await ctx.reply("✅ Monitor removed." if await service.remove(str(ctx.author.id), int(args[0])) else "Could not find that monitor.")
+            await ctx.reply(
+                "✅ Monitor removed."
+                if await service.remove(str(ctx.author.id), int(args[0]))
+                else "Could not find that monitor."
+            )
             return
-        await ctx.reply("⚠️ Usage: `!monitor add <name> <https://url> [seconds]` or `!monitor remove <id>`")
+        await ctx.reply(
+            "⚠️ Usage: `!monitor add <name> <https://url> [seconds]` or `!monitor remove <id>`"
+        )
 
     @bot.command(name="monitors")
     async def monitors_command(ctx: commands.Context):
@@ -386,13 +449,17 @@ def register_events(bot: commands.Bot) -> None:
             return
         records = await service.list_for_user(str(ctx.author.id))
         if not records:
-            await ctx.reply("You are not monitoring any services. Use `!monitor add` to get started.")
+            await ctx.reply(
+                "You are not monitoring any services. Use `!monitor add` to get started."
+            )
             return
         lines = ["🩺 **Monitored Services:**"]
         for record in records:
             state = record.last_status or "pending first check"
             detail = f" — {record.last_error}" if record.last_error else ""
-            lines.append(f"• `#{record.id}` **{record.name}**: {state}{detail} ({record.url}; every {record.interval_seconds}s)")
+            lines.append(
+                f"• `#{record.id}` **{record.name}**: {state}{detail} ({record.url}; every {record.interval_seconds}s)"
+            )
         await ctx.reply("\n".join(lines))
 
     @bot.command(name="confirm")
@@ -411,7 +478,11 @@ def register_events(bot: commands.Bot) -> None:
         if service is None:
             await ctx.reply("PC action service is not enabled.")
             return
-        await ctx.reply("✅ Pending action cancelled." if await service.cancel(str(ctx.author.id), token) else "No pending action found for that confirmation code.")
+        await ctx.reply(
+            "✅ Pending action cancelled."
+            if await service.cancel(str(ctx.author.id), token)
+            else "No pending action found for that confirmation code."
+        )
 
     @bot.command(name="repos")
     async def repos_command(ctx: commands.Context, username: str | None = None):
